@@ -1,0 +1,97 @@
+# ============================================================
+# NUR — .gitignore
+# ============================================================
+
+# ----- Python -----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+.eggs/
+build/
+dist/
+develop-eggs/
+downloads/
+parts/
+sdist/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+.installed.cfg
+MANIFEST
+
+# ----- Virtual environments -----
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# ----- Environment & secrets -----
+.env
+.env.local
+.env.*.local
+*.secret
+secrets/
+credentials.json
+
+# ----- IDE -----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# ----- Jupyter / Colab -----
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+.colab/
+
+# ----- NUR data (downloaded at runtime, NOT committed) -----
+data/quran/*.json
+data/hadith/**/*.json
+data/tafsir/*.json
+data/tafsir/**/*.json
+data/processed/*.jsonl
+data/processed/_summary.json
+data/chroma_db/
+data/sparse/*.json
+data/embeddings/*.npy
+data/embeddings/*.pt
+
+# Keep the data directory structure (track .gitkeep files)
+!data/**/.gitkeep
+!data/quran/.gitkeep
+!data/hadith/.gitkeep
+!data/tafsir/.gitkeep
+!data/processed/.gitkeep
+!data/chroma_db/.gitkeep
+!data/sparse/.gitkeep
+
+# ----- Logs & caches -----
+logs/
+*.log
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# ----- OS -----
+.DS_Store
+Thumbs.db
+
+# ----- Build artifacts -----
+*.db
+*.sqlite
+*.sqlite3
