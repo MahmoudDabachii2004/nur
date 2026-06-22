@@ -33,10 +33,8 @@ def main():
     all_quran = quran_col.get(include=["metadatas"])
     print(f"  Loaded {len(all_quran['ids'])} Quran chunks")
 
-    # Get ALL hadith chunks at once (33738 — fits in memory)
-    print("Loading all Hadith chunks from DB...")
-    all_hadith = hadith_col.get(include=["metadatas"])
-    print(f"  Loaded {len(all_hadith['ids'])} Hadith chunks")
+    # For Hadith, we look up by chunk ID directly (no need to load all 33,738)
+    print("Hadith lookups will be done by chunk ID directly (avoids SQL variable limit)")
 
     results = {}
 
@@ -103,8 +101,8 @@ def main():
         # ---- Hadiths ----
         for collection, number, desc in gt.get("expected_hadith", []):
             expected_id = f"hadith_{collection}_{number}"
-            # Direct lookup by chunk ID
-            res = hadith_col.get(ids=[expected_id], include=["metadatas"])
+            # Direct lookup by chunk ID (one at a time — avoids SQL variable limit)
+            res = hadith_col.get(ids=[expected_id], include=["metadatas", "documents"])
             if res["ids"]:
                 m = res["metadatas"][0]
                 hadith_results.append({
