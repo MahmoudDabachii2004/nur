@@ -435,6 +435,37 @@ The architecture doc (`DEC-016` cleanup confirmed) specifies a Llama 4 Scout pri
 
 ---
 
+### [2026-06-21T22:30:00-04:00] — Implementing SparseRetriever with Inverted Index (Phase 2)
+* **Decision ID:** `DEC-018`
+* **Status:** Completed
+* **Author:** Antigravity (AI Peer Engineer)
+
+#### 1. Context & Motivation
+Phase 2 requires a SparseRetriever to complement the existing DenseRetriever (DEC-015). Per `docs/RAG_PIPELINE_ARCHITECTURE.md` Step 2, the two retrievers run in parallel and their results are fused via Reciprocal Rank Fusion (RRF). The sparse index files (`data/sparse/{source}_sparse.json`) already exist from Phase 1 ingestion — they store BGE-M3 lexical weights per chunk in the format `{chunk_id: {"indices": [...], "values": [...]}}`.
+
+#### 2. Before vs. After
+* **Before:**
+  * No sparse retrieval module existed.
+  * The Phase 1 retrieval audit (`DEC-004`) showed French queries had systematically `N/A` sparse ranks because the indexed text was purely Arabic. The LLM-synthesized bilingual context (DEC-005 through DEC-013) solved this at the data level — chunks now contain French and English keywords. But there was no code to actually query the sparse index at runtime.
+* **After:**
+  * Created `src/nur/retriever/sparse.py` defining the `SparseRetriever` class.
+  * The class builds an **inverted index** on first load: `token_id → [(chunk_id, weight), ...]`. This is the standard sparse-retrieval data structure (same one BM25 uses). Query scoring iterates only over posting lists for tokens present in the query, making it O(sum of posting-list sizes) instead of O(all_chunks × avg_tokens_per_chunk).
+  * Sparse JSON files are loaded **lazily** — only when a query targets that specific source. This avoids loading 100MB+ files for sources that aren't queried.
+  * Created `scripts/test_sparse_search.py` — a model-free test that verifies the math via the self-similarity property (a chunk must rank #1 when its own vector is the query, because the dot product of a vector with itself = sum of squared weights = maximum possible score). This avoids the 2.3GB BGE-M3 download during testing; live query encoding is deferred to `benchmark_sparse.py` (to be run on the user's Mac where the model is cached).
+
+#### 3. Impacted Files
+* [sparse.py](file:///home/z/my-project/repos/nur/src/nur/retriever/sparse.py) — Created sparse retriever module with inverted index and lazy loading.
+* [test_sparse_search.py](file:///home/z/my-project/repos/nur/scripts/test_sparse_search.py) — Created model-free test suite using self-similarity property.
+
+#### 4. Validation
+* Ran `python scripts/test_sparse_search.py` successfully. All 3 self-similarity tests passed:
+  * `quran_1_1` (Bismillah) → rank 1, score 1.903861. Neighbors: other Al-Fatihah verses (shared vocabulary).
+  * `quran_2_255` (Ayat al-Kursi) → rank 1, score 1.523489. Neighbors: other long theological verses.
+  * `hadith_tirmidhi_1` (purification) → rank 1, score 1.742256. Neighbors: other Tirmidhi hadiths in the same chapter.
+* The neighboring results are not just mathematically correct but semantically sensible — chunks sharing more tokens rank higher, which is exactly the lexical matching behavior we want.
+
+---
+
 ## Future Architectural Plans
 
 ### [Phase 2] — LLM-Synthesized Contextual Retrieval via Kaggle GPUs
