@@ -4,6 +4,10 @@
 > **Engineering Rule**: Fail small, validate between steps, no lazy stubbing. 
 > All code artifacts must be written in English, with clear doc-comments explaining *why*, not *what*.
 
+> ⚠️ **V3 SUPERSEDE NOTICE (2026-06-23)** — Phases 1-4 below reflect V1/V2 work. V3 has refactored the entire data ingestion + RAG pipeline. The V3-equivalent of Phases 1-4 is documented in `docs/v3/` (especially `00_OVERVIEW.md` and `04_RETRIEVAL_PIPELINE.md`). The V3 build pipeline is in `scripts/v3/` (8 steps). The V3 runtime pipeline is in `src/nur/v3/`. Phases 5-9 below remain valid future work for V3.
+
+---
+
 ## Phase 1 — Data Ingestion + Contextual Embedding ✅ Completed
 
 **Goal**: Build the local vector database with LLM-enriched context for all Islamic texts.

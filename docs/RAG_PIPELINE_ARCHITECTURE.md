@@ -3,6 +3,8 @@
 > **MANDATORY READ**: This document defines the exact, definitive sequence of operations for the NUR Retrieval-Augmented Generation pipeline. 
 > It is designed to solve complex theological dilemmas (Ikhtilaf) while strictly adhering to `PILLARS.md` (Zero hallucination, Scholar-grounded, Strict abstention).
 
+> ⚠️ **V3 SUPERSEDE NOTICE (2026-06-23)** — The 5-step pipeline below (Architect → Fetch → Reranker → Reporter → Verification) reflects V1/V2. V3 keeps the same philosophy but introduces **2-phase sequential retrieval**: Phase A (Quran+Tafsir) then Phase B (Hadith) with a confidence gate. **For the V3 pipeline, read `docs/v3/04_RETRIEVAL_PIPELINE.md` instead.** The "Reporter" persona and verification steps remain the same.
+
 ---
 
 ## 1. Core Philosophy: The "Reporter" Persona

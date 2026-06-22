@@ -1,6 +1,10 @@
 # NUR — Data Sources & Provenance
 
 > **MANDATORY READ for anyone auditing NUR's data integrity.**
+
+> ⚠️ **V3 SUPERSEDE NOTICE (2026-06-23)** — The 4-collection structure described below (Quran, Hadith, Tafsir AR, Tafsir EN) reflects V1/V2. V3 uses 2 collections: `quran_v3` (with tafsir integrated in the same chunk) and `hadith_v3`. The data sources (alquran.cloud, meeAtif, spa5k/tafsir_api) are the same. V3 adds 3 new tafsirs (Ibn Kathir AR, Al-Tabari AR, As-Sa'di AR). **For V3 data sources, read `docs/v3/01_DATA_SOURCES.md`.** The audit procedure (section 7) remains valid.
+
+---
 > This document records exactly where every piece of Islamic text in the NUR
 > database came from, when it was downloaded, under what license, and how to
 > re-verify or re-download it.

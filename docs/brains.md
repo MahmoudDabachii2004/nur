@@ -1112,3 +1112,75 @@ Phase 3 requires the reranker (Step 3) and abstention gate (Pillar 4). The reran
 
 
 
+
+---
+
+### [2026-06-23T19:30:00-04:00] — V3 Architecture Refoundation: Tafsir as Semantic Bridge
+* **Decision ID:** `DEC-042`
+* **Status:** Completed (build) — pending runtime validation
+* **Author:** Super Z + Mahmoud
+
+#### 1. Context & Motivation
+V1/V2 of the NUR pipeline had 5 structural flaws that made retrieval fundamentally broken:
+1. **Tafsir orphelin**: Tafsir was embedded ALONE (4 separate collections) — disconnected from the verse it explains
+2. **Numérotation globale décalée**: `quran_2_10` instead of standard `quran_2:3` — URLs broken
+3. **Compétition inter-collections**: Tafsir (longer text) evicted the verse itself from top-5
+4. **Pas de pont sémantique modern**: "smoking haram" → 0 match in 6,236 verses → LLM hallucinates
+5. **Pas de context card cross-lingual**: FR queries failed 67% of the time (no FR↔AR↔EN keyword bridge)
+
+#### 2. Before vs After
+* **Before (V1/V2)**:
+  * 4 ChromaDB collections (quran, hadith, tafsir_ar, tafsir_en)
+  * 1 tafsir (Ibn Kathir) embedded separately
+  * Global ayah numbering (broken URLs)
+  * Hadith URLs reconstructed dynamically (30% 404s)
+  * Parallel retrieval across all 4 collections with RRF
+  * 1 LLM (Qwen2.5-14B) ran on Lightning AI for both context synthesis AND embedding
+* **After (V3)**:
+  * 2 ChromaDB collections (`quran_v3` with tafsir integrated, `hadith_v3`)
+  * 4 tafsirs per verse (Ibn Kathir EN+AR, Al-Tabari AR, As-Sa'di AR) — all labeled in the chunk
+  * Standard surah:ayah numbering (SRC-QURAN-2-195 → https://quran.com/2/195)
+  * Hadith URLs stored from meetif "Reference" field (never reconstructed)
+  * 2-phase sequential retrieval: Phase A (Quran+Tafsir) THEN Phase B (Hadith) with confidence gate
+  * Confidence score per phase (STRONG/WEAK/EMPTY) → triggers EMPTY disclaimer if Quran doesn't address topic
+  * Context Card (Layer 1) LLM-generated trilingual (FR/EN/AR keywords) — cross-lingual bridge
+  * Cross-refs Quran→Hadith pre-computed via tafsir parsing (197 Quran chunks linked to 257 hadiths)
+  * Build: Qwen2.5-14B-AWQ on Lightning AI L40S for Context Cards, BGE-M3 on Lightning+Kaggle T4×2 for embeddings
+  * Runtime: Groq llama-3.1-8b (Architect) + llama-4-scout-17b (Reporter), with Ollama fallback
+
+#### 3. Key Design Decisions
+* **Tafsir IS the semantic bridge**: Modern questions ("smoking haram?") match the tafsir's explanation ("any action causing harm to one's body" in Ibn Kathir on 2:195) rather than the verse text directly. This is the central insight of V3.
+* **Truncation 600 chars per tafsir**: Data-driven decision based on analysis of 6,236 tafsirs. p99 = 200 tokens, so 600 chars (~170 tokens) gives 18.2% verse signal in embedding (vs 14.6% at 800 chars). Full text preserved in metadata.text_full for the LLM.
+* **2-phase sequential (not parallel)**: Phase A Quran alone → top 5. Phase B Hadith alone → top 5. Never compete. Quran has priority. If Phase A returns 0 chunks > 0.5, the LLM must say "Le Quran n'aborde pas directement ce sujet."
+* **Multi-tafsir with Ikhtilaf detection**: 4 tafsirs per verse enable Pillar 9 (Ikhtilaf awareness). When Ibn Kathir and Al-Tabari disagree, the LLM must present both views.
+* **Hadith IDs with -n1/-n2 suffix**: Sahih Muslim has multiple narrations per hadith_number (e.g. Muslim #1 has 42 narrations). V3 keeps canonical ID for first occurrence (cross-refs work) and adds -n1, -n2 for the rest. metadata.canonical_id preserves the link.
+
+#### 4. Impacted Files
+* `docs/v3/` — 9 new architecture documents (00_OVERVIEW through 08_EXAMPLES)
+* `scripts/v3/` — 8 build pipeline scripts + run_all.sh + prepare_lightning_upload.sh + LIGHTNING_AI.md
+* `src/nur/v3/` — 9 runtime pipeline modules (architect, retriever_quran, retriever_hadith, cross_refs, reranker, reporter, verifier, pipeline, cli)
+* `data/chroma_db_v3/` — V3 ChromaDB (quran_v3_dense: 6,236 docs, hadith_v3_dense: 33,738 docs)
+* `data/sparse_v3/` — V3 sparse indices (quran_v3_sparse.json, hadith_v3_sparse.json)
+* `data/processed/` — V3 chunks (quran_v3.jsonl, hadith_v3.jsonl, context_cards.jsonl)
+
+#### 5. Validation
+* Build complete:
+  * 6,236 Quran chunks (3-layer: Context Card + Word of Allah + 4 Tafsirs)
+  * 33,738 Hadith chunks (2-layer: mini context + Hadith text)
+  * 6,236 Context Cards generated (100% coverage after parser fix for apostrophe escaping)
+  * 197 Quran chunks with hadith cross-refs (257 total refs)
+  * ChromaDB: quran_v3_dense=6236, hadith_v3_dense=33738
+  * Sparse indices: quran (24 MB), hadith (73 MB)
+* **Runtime validation DEFERRED**: `python scripts/v3/08_verify_pipeline.py` to run on user's Mac with the 5 ground-truth examples (prière, Ayat al-Kursi, smoking, wudu, IA)
+* **Expected**: V3 should resolve all 5 V1/V2 flaws. Specifically:
+  * "Pourquoi la prière est obligatoire?" → finds 2:43 with tafsir attached (vs V1/V2 returned tafsir alone)
+  * "Est-ce que fumer est haram?" → matches 2:195 via tafsir pont (vs V1/V2 returned 0 matches)
+  * "معلومات عن كرسي الله" → finds 2:255 with correct URL (vs V1/V2 had broken URL)
+  * "Le wudu avec eau du puits?" → Ikhtilaf detected between Ibn Kathir and Tabari
+  * "L'IA a-t-elle une âme?" → Phase A WEAK → disclaimer + hadith fallback
+
+#### 6. Notable Build Issues Resolved
+* **Tafsir parquet 70% empty**: `data/tafsir/en_ibn_kathir.parquet` (legacy V1) had 4,341/6,235 empty entries. Re-fetched from spa5k upstream JSON — now 0% empty across all 4 tafsirs.
+* **Qwen2.5-14B JSON truncation**: 6% of context cards failed JSON parsing due to (a) max_tokens too low, (b) Qwen escaping apostrophes as `\\\'` instead of `'`. Fixed with: max_tokens=800, simplified system prompt, regex `re.sub(r"\\+'", "'", text)` for parser.
+* **ChromaDB DuplicateIDError**: 6,067 hadiths shared IDs (mostly Sahih Muslim multiple narrations per hadith_number). Fixed by appending `-n1`, `-n2` suffixes while preserving canonical_id in metadata.
+* **Lightning AI L40S credit limit**: Hit during hadith embedding. Migrated to Kaggle T4×2 for hadith embedding (12 min total).

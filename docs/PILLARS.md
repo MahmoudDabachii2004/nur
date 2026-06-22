@@ -3,6 +3,11 @@
 
 > Executive summary of NUR's core principles. These pillars are non-negotiable functional requirements that guide all architectural and technical decisions.
 
+> ⚠️ **V3 STATUS (2026-06-23)** — These 10 Pillars remain the **theological source of truth**. V3 implements them better than V1/V2. Specifically:
+> - Pillar 1 (Triple-Index): V3 unifies Quran+Tafsir in one chunk (2 collections instead of 4), keeping the divine/human separation via labeled layers in the embedding_text
+> - Pillar 5 (Dual-Layer Context): V3 uses 3 layers (Context Card + Word of Allah PURE + 4 Tafsirs labeled) — see `docs/v3/02_CHUNK_SCHEMA.md`
+> - All other pillars (2, 3, 4, 6, 7, 8, 9, 10) are unchanged in V3
+
 ## Pillar 1 — Triple-Index + Scholar Index
 
 To maintain theological integrity, we do not mix the Word of Allah with human commentary. The system uses separate logical indexes:

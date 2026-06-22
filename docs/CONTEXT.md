@@ -1,9 +1,23 @@
-
 # NUR (نور) — Project Context & Master Overview
 
 > **نور** — "Light" in Arabic. A profound Quranic concept (Surah An-Nur, 24:35).
 > This document provides the high-level vision, ethical boundaries, and technical context of the NUR project. 
 > It is the entry point for any AI agent or engineer working on the codebase.
+
+> ⚠️ **V3 SUPERSEDE NOTICE (2026-06-23)** — The architecture described in sections 3-4 of this document reflects V1/V2.
+> V3 has refactored the data ingestion and RAG pipeline from scratch. **For the current architecture, read `docs/v3/` instead.**
+> Specifically:
+> - V3 uses **2 collections** (quran_v3 with tafsir integrated, hadith_v3) instead of 4 separate collections
+> - V3 uses **Qwen2.5-14B-AWQ on Lightning AI L40S** for Context Card generation (build time only)
+> - V3 uses **BGE-M3 on Lightning AI L40S / Kaggle T4 x2** for embeddings (build time only)
+> - V3 uses **Groq llama-3.1-8b + llama-4-scout-17b** for runtime (Architect + Reporter)
+> - V3 introduces **2-phase sequential retrieval** (Quran phase A, then Hadith phase B with confidence gate)
+> - V3 introduces **multi-tafsir** (Ibn Kathir EN+AR, Al-Tabari AR, As-Sa'di AR) per verse
+> - V3 introduces **cross-refs Quran→Hadith** pre-computed via tafsir parsing
+> - V3 fixes the **standard surah:ayah numbering** (V1/V2 used global cumulative numbering)
+> - V3 fixes **Hadith URLs** (stored from meetif, never reconstructed)
+> 
+> The 10 Pillars (`docs/PILLARS.md`) remain the theological source of truth — V3 just implements them better.
 
 ---
 
