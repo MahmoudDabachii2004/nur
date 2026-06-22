@@ -272,19 +272,19 @@ class NURPipeline:
             print(f"  [{query_label}] Encoded query ({len(sparse_vec)} sparse tokens)")
 
             for source in self.SOURCES:
-                # Dense search
+                # Dense search — use top_k (the pool size), not hardcoded 30
                 dense_results = self.dense_retriever.search(
-                    query_vector=dense_vec, source=source, top_k=30
+                    query_vector=dense_vec, source=source, top_k=top_k
                 )
                 # Sparse search
                 sparse_results = self.sparse_retriever.search(
-                    query_sparse=sparse_vec, source=source, top_k=30
+                    query_sparse=sparse_vec, source=source, top_k=top_k
                 )
                 # RRF fusion
                 fused = self.fuser.fuse(
                     dense_results=dense_results,
                     sparse_results=sparse_results,
-                    top_k=30,
+                    top_k=top_k,
                 )
 
                 # Merge into the global pool (keep max rrf_score per chunk)

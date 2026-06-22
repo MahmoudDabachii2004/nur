@@ -80,10 +80,19 @@ class Settings(BaseSettings):
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
 
     # ----- Retrieval -----
+    # RRF fusion parameters (see docs/RAG_PIPELINE_ARCHITECTURE.md Step 2)
     rrf_k: int = 25
     rrf_alpha_dense: float = 0.4
 
-    top_k_initial: int = 30
+    # Pool sizes:
+    # - top_k_initial: how many chunks to retrieve per (query, source) pair
+    #   before dedup. Increased from 30 to 100 in Phase 3 (DEC-031) to improve
+    #   recall — the Phase 2 baseline recall was only 21% (3/14 key verses
+    #   found). More chunks = better chance of finding direct verse proofs.
+    # - top_k_rerank: how many chunks to send to the LLM after reranking.
+    #   Capped at 10 by Groq's 30K TPM limit (10 chunks × 1,660 tokens = 16,600
+    #   tokens = 59% of TPM per query).
+    top_k_initial: int = 100
     top_k_rerank: int = 10
     top_k_final: int = 5
 

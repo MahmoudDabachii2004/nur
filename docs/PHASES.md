@@ -70,9 +70,13 @@ src/nur/
 **Goal**: Eliminate hallucination by ensuring the LLM only receives high-quality context.
 
 **Progress checklist**:
-- [ ] **Recall audit** — verify the retriever actually finds the key verses/hadiths before reranking. Test script: `scripts/test_recall.py`. Run with: `python3 scripts/test_recall.py --query "Is prayer obligatory" --top-k 100`. **In progress** — user running the audit.
-- [ ] **Reranker module** — `src/nur/retriever/reranker.py` using `bge-reranker-v2-m3` cross-encoder. Model verified working (DEC-029): distinguishes "prayer = 2nd pillar obligatory" (score 0.99) from "Friday prayer abandonment" (score ~0). Uses `normalize=True` for sigmoid scores (0-1 range). **Next after recall audit.**
-- [ ] **Pipeline integration** — retrieve top-K (K TBD based on recall audit), reranker scores all K, keep top 10. Send top 10 to Reporter (TPM limit: 10 chunks × 1,660 tokens = 16,600 tokens = 59% of Scout's 30K TPM).
+- [x] **Recall audit** — `scripts/test_recall.py` with authoritative verse list from alquran.cloud API. Baseline measured: **3/14 = 21%** (DEC-030). Only 3 of 14 key prayer verses found in top-100. Root cause: retriever matches "prayer obligatory" to tafsirs that say "prière obligatoire" but misses direct Quran verses that say "establish prayer" (different surface form).
+- [x] **A+B improvements** (DEC-031):
+  - **A**: Increased `top_k_initial` from 30 to 100 (config + .env + .env.example). More chunks retrieved = better chance of finding direct verse proofs.
+  - **B**: Improved Architect system prompt to generate sub-questions using Quranic terminology ("establish prayer", "five pillars of Islam", "give zakah") instead of just "prayer obligation". This helps the retriever match the actual Quranic phrasing.
+  - **Status**: code complete, awaiting user re-test to measure recall improvement.
+- [ ] **Reranker module** — `src/nur/retriever/reranker.py` using `bge-reranker-v2-m3` cross-encoder. Model verified working (DEC-029): distinguishes "prayer = 2nd pillar obligatory" (score 0.99) from "Friday prayer abandonment" (score ~0). Uses `normalize=True` for sigmoid scores (0-1 range). **Next after A+B recall re-test.**
+- [ ] **Pipeline integration** — retrieve top-100, reranker scores all 100, keep top 10. Send top 10 to Reporter (TPM limit: 10 chunks × 1,660 tokens = 16,600 tokens = 59% of Scout's 30K TPM).
 - [ ] **Abstention Rule** — if top 1 chunk score < 0.35 (sigmoid), abort LLM generation. Return "I do not have sufficient reliable sources to answer this question." (Pillar 4).
 - [ ] **Authenticity Weighting** — multiply reranker score by grade weight (Sahih ×1.3, Hasan ×1.1, Da'if ×0.5, Mawdu ×0). The `grade_weight` field is already in the hadith metadata from Phase 1 ingestion.
 - [ ] **Mawdu' Detection** — parallel check against a negative index of fabricated hadiths. Needs a data source (to research — compilations of Al-Albani's *Silsilat al-Ahadith ad-Da'ifah*, or academic datasets).

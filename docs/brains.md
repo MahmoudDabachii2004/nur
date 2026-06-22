@@ -977,6 +977,51 @@ During Phase 3 recall testing, the agent built a recall audit script (`scripts/t
 
 ---
 
+### [2026-06-22T05:00:00-04:00] — A+B Recall Improvements: Bigger Pool + Quranic Terminology Prompt
+* **Decision ID:** `DEC-031`
+* **Status:** Completed (code complete; awaiting user re-test)
+* **Author:** Antigravity (AI Peer Engineer)
+
+#### 1. Context & Motivation
+The recall baseline (DEC-030) was **3/14 = 21%** — only 3 of 14 authoritative prayer verses found in the top-100. Root cause analysis: the retriever matches by semantic similarity, and "Is prayer obligatory" does NOT match "establish prayer" well (different surface forms). The top-10 was full of tafsirs that explicitly say "prière obligatoire" in their bilingual context prefix, but the actual Quran verses (2:3, 2:43, 2:110, etc.) that say "establish prayer" were ranked below rank 100 or not found at all.
+
+The user approved two improvements (A+B):
+- **A**: Increase the retriever pool size from 30 to 100 — more chunks retrieved = better chance of finding direct verse proofs.
+- **B**: Improve the Architect system prompt to generate sub-questions that use Quranic terminology ("establish prayer", "five pillars of Islam", "give zakah") instead of just "prayer obligation" — this helps the retriever match the actual Quranic phrasing.
+
+#### 2. Before vs. After
+* **Before:**
+  * `top_k_initial = 30` (config default) — only 30 chunks retrieved per (query, source) pair.
+  * Architect system prompt had 6 rules about decomposition but NO guidance on using Quranic terminology.
+  * Sub-questions for "Is prayer obligatory?" were all generic: "Is prayer obligatory in Islam?", "What are the conditions for prayer to be obligatory?", etc. None used the phrase "establish prayer".
+* **After:**
+  * `top_k_initial = 100` (config + .env + .env.example updated). The `_retrieve()` method now uses the `top_k` parameter consistently (was hardcoded to 30 in 3 places).
+  * Architect system prompt gained 3 new rules (7, 8, 9) under a "CRITICAL — USE QURANIC TERMINOLOGY" section:
+    - Rule 7: For obligations (prayer, charity, fasting, pilgrimage), include a sub-question with the EXACT Quranic phrasing ("establish prayer", "give zakah", "fasting prescribed", "pilgrimage to the House").
+    - Rule 8: For rulings (halal/haram), use "Quranic verse about" or "hadith about" + topic.
+    - Rule 9: For five pillars questions, use the exact phrase "five pillars of Islam" (matches Bukhari/Muslim hadith).
+  * The prompt now explains WHY: "the retriever matches by semantic similarity. 'Is prayer obligatory' does NOT match 'establish prayer' well, but 'establish prayer in Quran' matches it directly."
+
+#### 3. Impacted Files
+* [config.py](file:///home/z/my-project/repos/nur/src/nur/config.py) — `top_k_initial` default changed from 30 to 100, with comment explaining the DEC-031 rationale.
+* [.env.example](file:///home/z/my-project/repos/nur/.env.example) — `NUR_TOP_K_INITIAL=100` with explanatory comment.
+* [generator/__init__.py](file:///home/z/my-project/repos/nur/src/nur/generator/__init__.py) — Architect `SYSTEM_PROMPT` gained rules 7-9 (Quranic terminology guidance).
+* [pipeline.py](file:///home/z/my-project/repos/nur/src/nur/pipeline.py) — `_retrieve()` method now uses `top_k` parameter consistently (was hardcoded to 30 in 3 places: dense search, sparse search, RRF fusion).
+* [PHASES.md](file:///home/z/my-project/repos/nur/docs/PHASES.md) — Phase 3 checklist updated: recall audit done (21% baseline), A+B done, reranker next.
+
+#### 4. Validation
+* **Agent-side validation (passed):**
+  * Config loads with `top_k_initial=100` (verified after .env update).
+  * Architect prompt contains "QURANIC TERMINOLOGY", "establish prayer", "five pillars" — verified via string search.
+  * Pipeline `_retrieve()` uses `top_k` parameter in all 3 places (dense, sparse, RRF) — no more hardcoded 30.
+* **Live recall re-test (DEFERRED TO USER per Rule 3):**
+  * The user MUST re-run `python3 scripts/test_recall.py` to measure the new recall.
+  * Expected: recall should improve from 21% (3/14) to ideally 50%+ (7/14).
+  * If the Architect now generates sub-questions like "establish prayer in Quran" and "five pillars of Islam hadith", the retriever should find 2:43, 2:110, Bukhari #8, etc. that were previously missed.
+  * If recall is still low (<40%), we need Option C (query expansion with paraphrases) or Option D (ColBERT late-interaction).
+
+---
+
 ## Future Architectural Plans
 
 ### [Phase 2] — LLM-Synthesized Contextual Retrieval via Kaggle GPUs
