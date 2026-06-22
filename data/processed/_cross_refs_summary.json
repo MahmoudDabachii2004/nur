@@ -1,0 +1,7 @@
+{
+  "chunks_total": 6236,
+  "chunks_with_refs": 197,
+  "total_refs": 257,
+  "method": "tafsir_parsing",
+  "validated_against": "hadith_v3.jsonl IDs"
+}

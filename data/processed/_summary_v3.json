@@ -1,0 +1,11 @@
+{
+  "build_version": "v3",
+  "quran_chunks": 6236,
+  "hadith_chunks": 33738,
+  "total_chunks": 39974,
+  "tafsirs_per_quran_chunk": 4,
+  "tafsir_truncation_chars": 600,
+  "embedding_model": "BAAI/bge-m3",
+  "embedding_dim": 1024,
+  "vector_db": "chromadb"
+}
