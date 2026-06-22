@@ -31,20 +31,39 @@ HADITH_V3_PATH = PROCESSED_DIR / "hadith_v3.jsonl"
 OUTPUT_PATH = PROCESSED_DIR / "quran_v3.jsonl"  # update in-place
 
 # Patterns: match "Bukhari 123", "Sahih Muslim #456", "Abu Dawud 789", etc.
+# Tafsirs cite collections in many ways:
+#   - "It is reported in Bukhari 1234" → Bukhari + number
+#   - "Al-Bukhari recorded that..." → Bukhari, no number (skip, can't link without num)
+#   - "The Two Sahihs recorded" → skip (ambiguous)
+#   - "Sahih Muslim #456" → Muslim + number
+#   - "In Hadith number 1234" → skip (no collection)
+# We require BOTH collection name AND number in proximity (within 80 chars).
 COLLECTION_PATTERNS = [
-    # (regex, canonical_collection_name, slug)
-    (re.compile(r"\b(?:Sahih\s+)?(?:al[-\s])?Bukhari['’]?s?\s*(?:#?(\d{1,5}))", re.IGNORECASE),
-     "Sahih al-Bukhari", "BUKHARI"),
-    (re.compile(r"\b(?:Sahih\s+)?Muslim['’]?s?\s*(?:#?(\d{1,5}))", re.IGNORECASE),
-     "Sahih Muslim", "MUSLIM"),
-    (re.compile(r"\b(?:Sunan\s+)?(?:Abi\s+Dawud|Abu\s+Dawud|AbuDawud)['’]?s?\s*(?:#?(\d{1,5}))", re.IGNORECASE),
-     "Sunan Abi Dawud", "ABUDAWUD"),
-    (re.compile(r"\b(?:Jami`?\s+)?(?:at[-\s])?Tirmidhi['’]?s?\s*(?:#?(\d{1,5}))", re.IGNORECASE),
-     "Jami` at-Tirmidhi", "TIRMIDHI"),
-    (re.compile(r"\b(?:Sunan\s+)?(?:an[-\s])?Nasa['’]?i['’]?s?\s*(?:#?(\d{1,5}))", re.IGNORECASE),
-     "Sunan an-Nasa'i", "NASAI"),
-    (re.compile(r"\b(?:Sunan\s+)?Ibn\s+Majah['’]?s?\s*(?:#?(\d{1,5}))", re.IGNORECASE),
-     "Sunan Ibn Majah", "IBNMAJAH"),
+    # (regex with capture group for number, slug)
+    # Bukhari: "Bukhari 1234", "al-Bukhari 1234", "Sahih Bukhari 1234", "Bukhari recorded in book 1234"
+    (re.compile(
+        r"\b(?:Sahih\s+)?(?:al[-\s])?Bukhari['’]?(?:s)?\b[^#\d]{0,80}#?(\d{1,5})\b",
+        re.IGNORECASE), "BUKHARI"),
+    # Muslim: "Muslim 1234", "Sahih Muslim 1234"
+    (re.compile(
+        r"\b(?:Sahih\s+)?Muslim['’]?(?:s)?\b[^#\d]{0,80}#?(\d{1,5})\b",
+        re.IGNORECASE), "MUSLIM"),
+    # Abi Dawud / Abu Dawud
+    (re.compile(
+        r"\b(?:Sunan\s+)?(?:Abi\s+Dawud|Abu\s+Dawud|AbuDawud)['’]?(?:s)?\b[^#\d]{0,80}#?(\d{1,5})\b",
+        re.IGNORECASE), "ABUDAWUD"),
+    # Tirmidhi
+    (re.compile(
+        r"\b(?:Jami`?\s+)?(?:at[-\s])?Tirmidhi['’]?(?:s)?\b[^#\d]{0,80}#?(\d{1,5})\b",
+        re.IGNORECASE), "TIRMIDHI"),
+    # Nasa'i
+    (re.compile(
+        r"\b(?:Sunan\s+)?(?:an[-\s])?Nasa['’]?i['’]?(?:s)?\b[^#\d]{0,80}#?(\d{1,5})\b",
+        re.IGNORECASE), "NASAI"),
+    # Ibn Majah
+    (re.compile(
+        r"\b(?:Sunan\s+)?Ibn\s+Majah['’]?(?:s)?\b[^#\d]{0,80}#?(\d{1,5})\b",
+        re.IGNORECASE), "IBNMAJAH"),
 ]
 
 
@@ -70,7 +89,7 @@ def extract_hadith_refs_from_text(text: str) -> list[tuple[str, int]]:
     Returns deduped list."""
     refs: list[tuple[str, int]] = []
     seen: set[tuple[str, int]] = set()
-    for regex, _collection_name, slug in COLLECTION_PATTERNS:
+    for regex, slug in COLLECTION_PATTERNS:
         for m in regex.finditer(text):
             num_str = m.group(1)
             if not num_str:

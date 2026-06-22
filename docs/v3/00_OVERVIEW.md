@@ -108,13 +108,13 @@ Plus de `tafsir_ar`, plus de `tafsir_en` séparés. Le tafsir est **dans** le ch
 
 | Composant | Modèle | Hébergement |
 |-----------|--------|-------------|
-| Embeddings | `BAAI/bge-m3` (1024 dim) | Local (BGE-M3 2.3GB) |
+| **Context Card generation (build)** | `Qwen2.5-14B-Instruct-AWQ` via vLLM | **Lightning AI L40S** |
+| **Embedding BGE-M3 (build)** | `BAAI/bge-m3` (1024 dim) | **Lightning AI L40S** |
 | Sparse (BM25-like) | Built-in ChromaDB | Local |
 | Reranker | `BAAI/bge-reranker-v2-m3` | Local |
-| Architect (query decomposition) | `llama-3.1-8b-instant` | Groq |
-| Reporter (final answer) | `meta-llama/llama-4-scout-17b-16e-instruct` | Groq |
-| Context Card Generator | `llama-3.1-8b-instant` | Groq |
-| Fallback offline | `llama3.1:8b` | Local Ollama |
+| Architect (query decomposition, runtime) | `llama-3.1-8b-instant` | Groq |
+| Reporter (final answer, runtime) | `meta-llama/llama-4-scout-17b-16e-instruct` | Groq |
+| Fallback offline (runtime) | `llama3.1:8b` | Local Ollama |
 
 ## Index des documents V3
 

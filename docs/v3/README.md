@@ -71,19 +71,22 @@ V3 est une refonte from-scratch du pipeline NUR pour résoudre les 5 failles str
 
 ## Plan de build V3 (ordre strict)
 
-| # | Script | Description | Temps estimé |
-|---|--------|-------------|--------------|
-| 1 | `01_download_quran.py` | alquran.cloud API (Uthmani + Saheeh EN) | 5 min |
-| 2 | `02_download_hadith.py` | meetif API (6 collections) | 10 min |
-| 3 | `03_download_tafsirs.py` | Ibn Kathir AR + Tabari + Sa'di (upstream JSON, pas parquet) | 15 min |
-| 4 | `04_generate_context_cards.py` | LLM batch pour 6,236 versets (Groq) | 4h |
-| 5 | `05_compute_ikhtilaf.py` | NLI cross-tafsir + AR→EN translation | 2h15 |
-| 6 | `06_compute_cross_refs.py` | Parsing tafsirs → hadiths cités | 30 min |
-| 7 | `07_build_chunks.py` | Assembler chunks V3 (JSONL) | 15 min |
-| 8 | `08_embed_and_index.py` | BGE-M3 + ChromaDB | 30 min |
-| 9 | `09_verify_pipeline.py` | 5 exemples du doc 08 doivent passer | 10 min |
+| # | Script | Où | GPU ? | Temps |
+|---|--------|-----|-------|-------|
+| 1 | `01_download_quran.py` | Local | Non | 5 min |
+| 2 | `02_download_hadith.py` | Local | Non | 10 min |
+| 3 | `03_download_tafsirs.py` | Local | Non | 15 min |
+| 4 | `04_generate_context_cards.py` | **Lightning AI L40S** | vLLM Qwen2.5-14B-AWQ | 30 min |
+| 5 | `05_build_chunks.py` | Local | Non | 1 min |
+| 6 | `06_compute_cross_refs.py` | Local | Non | 30 sec |
+| 7 | `07_embed_and_index.py` | **Lightning AI L40S** | BGE-M3 | 25 min |
+| 8 | `08_verify_pipeline.py` | Local | BGE-M3 (CPU OK) | 10 min |
 
-**Total** : ~7-8 heures, $0 (Groq free tier)
+**Total** : ~1h GPU (Lightning AI free tier L40S = 3-4h) + ~30 min local
+
+**Coût** : $0 (Lightning AI free tier + Groq free tier)
+
+Voir `scripts/v3/LIGHTNING_AI.md` pour le mode d'emploi Lightning AI.
 
 ---
 
