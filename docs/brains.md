@@ -526,6 +526,51 @@ Both gaps are process problems, not code problems. They need to be encoded as ru
 
 ---
 
+### [2026-06-21T23:15:00-04:00] — Implementing RRFFuser for Dense+Sparse Fusion (Phase 2)
+* **Decision ID:** `DEC-021`
+* **Status:** Completed
+* **Author:** Antigravity (AI Peer Engineer)
+
+#### 1. Context & Motivation
+With `DenseRetriever` (DEC-015) and `SparseRetriever` (DEC-018) both working, the next Phase 2 step per `docs/RAG_PIPELINE_ARCHITECTURE.md` Step 2 is to fuse their ranked lists into a single ranking. The two retrievers produce scores on completely different scales (dense cosine similarity ∈ [0,1] vs sparse dot-product unbounded), so naive addition or averaging would let whichever produces larger numbers dominate. Reciprocal Rank Fusion (RRF) solves this by operating on RANKS, not scores.
+
+#### 2. Before vs. After
+* **Before:**
+  * No fusion module existed. Dense and sparse results could not be combined.
+  * The Phase 1 retrieval audit (`DEC-004`) had hand-fused dense+sparse ranks for benchmarking purposes, but there was no reusable, tested implementation in the codebase.
+* **After:**
+  * Created `src/nur/retriever/fusion.py` defining the `RRFFuser` class.
+  * Implements the exact RRF formula from the architecture doc: `score_rrf(c) = α × 1/(k + rank_dense(c)) + (1-α) × 1/(k + rank_sparse(c))` with `k=25`, `α=0.4` (dense weight), `1-α=0.6` (sparse weight).
+  * Defaults are pulled from `settings.rrf_k` and `settings.rrf_alpha_dense` so changing them in `.env` propagates automatically.
+  * Chunks appearing in only one list are NOT penalized with a synthetic low rank — they simply miss that term of the sum. This is standard RRF behavior.
+  * Output is deterministic: ties (same RRF score) are broken by chunk ID alphabetically, so the same input always produces the same output. Critical for testing.
+  * Returns enriched dicts with `dense_rank` and `sparse_rank` fields alongside `rrf_score`, so downstream code (and the future reranker in Phase 3) can see where each chunk came from.
+  * Created `scripts/test_fusion.py` — a pure-math test suite (no BGE-M3, no ChromaDB, no network) with 9 test cases:
+    1. Hand-computed scores (verified to 6 decimal places against manual calculation).
+    2. Chunk in both lists gets boosted score (ranks #1).
+    3. Chunk only in dense gets only the dense term.
+    4. Chunk in neither list is excluded.
+    5. `top_k` truncation.
+    6. Empty inputs don't crash.
+    7. Determinism (same inputs → identical output).
+    8. Config defaults match the architecture doc (`k=25`, `α=0.4`).
+    9. Invalid parameters (`k≤0`, `α∉[0,1]`) raise `ValueError`.
+
+#### 3. Impacted Files
+* [fusion.py](file:///home/z/my-project/repos/nur/src/nur/retriever/fusion.py) — Created RRF fusion module.
+* [test_fusion.py](file:///home/z/my-project/repos/nur/scripts/test_fusion.py) — Created pure-math test suite (9 cases).
+
+#### 4. Validation
+* Ran `python scripts/test_fusion.py` — all 9 tests pass.
+* The hand-computed test case (dense=[A,B,C], sparse=[B,A,D]) produced exactly the expected scores:
+  * B (rank 2 dense, rank 1 sparse) → 0.037892 ✅
+  * A (rank 1 dense, rank 2 sparse) → 0.037607 ✅
+  * D (absent dense, rank 3 sparse) → 0.021429 ✅
+  * C (rank 3 dense, absent sparse) → 0.014286 ✅
+* Note: this script is fully testable on the agent side because RRF operates on ranks, not on raw scores — no BGE-M3 model or ChromaDB connection is needed. The integration test (real query → dense + sparse → fuse) is deferred to the future `benchmark_fusion.py` script, which the user will run on their Mac.
+
+---
+
 ## Future Architectural Plans
 
 ### [Phase 2] — LLM-Synthesized Contextual Retrieval via Kaggle GPUs

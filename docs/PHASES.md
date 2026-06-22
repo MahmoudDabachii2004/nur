@@ -38,16 +38,16 @@ src/nur/
 ├── retriever/
 │   ├── dense.py       # ChromaDB queries (4 collections parallel) ✅ DEC-015
 │   ├── sparse.py      # Sparse JSON dot-product scoring ✅ DEC-018
-│   └── fusion.py      # RRF fusion (k=25, α=0.4 dense / 0.6 sparse)  ← Next
-├── generator.py       # Groq API (Architect + Reporter) + Instructor + JSON Schema
+│   └── fusion.py      # RRF fusion (k=25, α=0.4 dense / 0.6 sparse) ✅ DEC-021
+├── generator.py       # Groq API (Architect + Reporter) + Instructor + JSON Schema  ← Next
 └── cli.py             # Rich + Typer interactive CLI
 ```
 
 **Progress checklist**:
 - [x] `dense.py` — DenseRetriever connected to ChromaDB. Tested via `scripts/benchmark_dense.py` with 6 queries (EN/FR/AR) across quran + hadith. All return on-topic results with healthy similarity scores (0.65+).
 - [x] `sparse.py` — SparseRetriever with inverted index. Tested via `scripts/test_sparse_search.py` (model-free, 3 self-similarity cases pass) + 6 stress tests (empty query, non-existent token, top_k edges, determinism, dot-product math). All pass.
-- [ ] `fusion.py` — RRF fusion of dense + sparse ranks. **Next.**
-- [ ] `generator.py` — Groq API calls (Architect + Reporter) with `instructor` for structured JSON.
+- [x] `fusion.py` — RRFFuser implementing Reciprocal Rank Fusion. Tested via `scripts/test_fusion.py` (pure-math, 9 tests pass: hand-computed scores, both-lists boost, single-list cases, top_k truncation, empty inputs, determinism, config defaults, invalid param validation). All pass.
+- [ ] `generator.py` — Groq API calls (Architect + Reporter) with `instructor` for structured JSON. **Next.**
 - [ ] `pipeline.py` — Orchestrator wiring retriever → fusion → generator.
 - [ ] `cli.py` — Rich + Typer interactive terminal chatbot.
 - [ ] End-to-end validation: real user question → cited, structured answer.
