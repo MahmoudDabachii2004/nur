@@ -91,13 +91,21 @@ def print_top_chunks(result: PipelineResult) -> None:
 
 
 def print_report(result: PipelineResult) -> None:
-    """Print the Reporter's structured output (Step 4 output)."""
+    """Print the Reporter's structured output (Step 4 output) + grade warnings."""
     print_separator("STEP 4 — REPORTER: Structured Generation")
     print(f"  Model: {settings.llm_primary}")
 
     if not result.report:
         print("  ❌ No report generated.")
         return
+
+    # Print answer-level warning FIRST (if any) — this is the most important
+    # information for the user to see before reading the answer.
+    if result.answer_warning:
+        print(f"\n  {'─'*60}")
+        print(f"  ⚠️  ANSWER WARNING:")
+        print(f"  {result.answer_warning}")
+        print(f"  {'─'*60}")
 
     print(f"\n  ── conflict_detection ──")
     print(f"  {result.report.conflict_detection}")
@@ -109,6 +117,11 @@ def print_report(result: PipelineResult) -> None:
             preview = report.arabic_text[:120].replace("\n", " ")
             print(f"    Arabic: {preview}...")
         print(f"    Report: {report.report}")
+
+        # Show grade explanation for hadith sources (Pillar 3 education layer)
+        if report.source_id in result.grade_explanations:
+            explanation = result.grade_explanations[report.source_id]
+            print(f"    📚 Grade: {explanation[:200]}")
 
     print(f"\n  ── synthesis ──")
     print(f"  {result.report.synthesis}")

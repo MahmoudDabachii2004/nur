@@ -762,6 +762,87 @@ With the Architect + Reporter (DEC-022, DEC-024) and the retriever trio (DEC-015
 
 ---
 
+### [2026-06-22T02:00:00-04:00] — Pipeline Integration Test Passed + Actual Token Usage Recorded
+* **Decision ID:** `DEC-026`
+* **Status:** Completed
+* **Author:** Antigravity (AI Peer Engineer)
+
+#### 1. Context & Motivation
+The user ran `scripts/test_pipeline.py` on their Mac with the default query "What does the Quran say about charity and zakat?". The full pipeline executed end-to-end and all 4 validation checks passed. The user also provided two Groq dashboard screenshots showing actual token usage per model.
+
+#### 2. Before vs. After
+* **Before:**
+  * Pipeline code was written but not live-tested (DEC-025 deferred to user).
+  * Token usage estimates in `docs/GROQ_REFERENCE.md` were guesses (~5,100 tokens per query).
+* **After:**
+  * Pipeline validated end-to-end: 12.2s total, 4 sub-questions, 30 chunks retrieved, 4 direct reports, all source IDs cited.
+  * Retrieved exactly the right verses: 9:60 (8 zakat categories), 2:273 (restricted poor), 70:25 (deprived), 19:31 (prayer + zakah).
+  * `docs/GROQ_REFERENCE.md` updated with verified token data:
+    - Architect: 657 input + 60 output = 717 tokens (12% of 6K TPM)
+    - Reporter: 16,600 input + 937 output = 17,537 tokens (59% of 30K TPM)
+    - Total per query: ~18,254 tokens
+    - Throughput ceiling: ~1 query per minute (TPM-limited, not RPM-limited)
+    - Dashboard shows 25 RPM, not 30 RPM as docs state — treat 25 as the real ceiling.
+
+#### 3. Impacted Files
+* [GROQ_REFERENCE.md](file:///home/z/my-project/repos/nur/docs/GROQ_REFERENCE.md) — Replaced estimated token math with verified dashboard data.
+* [PHASES.md](file:///home/z/my-project/repos/nur/docs/PHASES.md) — Marked pipeline.py as fully validated.
+
+#### 4. Validation
+* User's test output confirmed all 4 checks passed (Architect, Retrieval, SourceRefs, Report structure + citation).
+* Token data extracted from screenshots via VLM (vision language model) and recorded.
+
+---
+
+### [2026-06-22T02:15:00-04:00] — Implementing Hadith Grade Education + Two-Tier Warning System
+* **Decision ID:** `DEC-027`
+* **Status:** Completed (code complete; live test deferred to user)
+* **Author:** Antigravity (AI Peer Engineer)
+
+#### 1. Context & Motivation
+The user raised a critical theological concern: showing "Sahih" without explaining what it means is irresponsible — a layperson might not know the difference between Sahih (authentic) and Mawdu' (fabricated). The user also specified the exact warning logic: "if there is no sahih or hasan it should be a big watchout and if there is it should be small warning additional context to warn max people."
+
+This implements Pillar 3 (Authenticity-Weighted Retrieval) education layer + Pillar 4 (Post-Generation Verification) enrichment + Pillar 8 (Scholar Opinions Are Mandatory) by noting that grades come from scholars.
+
+#### 2. Before vs. After
+* **Before:**
+  * Hadith grades were stored in metadata and sent to the LLM in the prompt, but NOT displayed to the user with education.
+  * No warning system existed for weak or fabricated hadiths.
+  * The LLM's `DirectReport` schema did not include grade fields.
+* **After:**
+  * Created `src/nur/grades.py` with:
+    * `WarningLevel` IntEnum: NONE (0) < SMALL (1) < BIG (2) < CRITICAL (3). IntEnum allows severity comparison.
+    * `GRADE_INFO` dict: 5 grade levels (sahih, hasan, daif, mawdu, unknown) each with label, plain-language explanation, per-hadith warning level, and warning text.
+    * `normalize_grade_level(grade_string)`: parses raw grade strings like "Sahih (Darussalam)" into normalized levels. Conservative — returns "unknown" rather than guessing.
+    * `get_grade_info(grade_string)`: returns the full info dict for a grade string.
+    * `get_answer_warning(grade_levels)`: implements the two-tier logic — CRITICAL if any Mawdu', BIG if only Da'if (no Sahih/Hasan), SMALL if Da'if alongside Sahih/Hasan, NONE otherwise. CRITICAL takes precedence.
+  * Updated `src/nur/pipeline.py`:
+    * `PipelineResult` gained `answer_warning: str | None` and `grade_explanations: dict[str, str]` fields.
+    * New `_enrich_report_with_grades(result)` method: runs AFTER the Reporter generates its output, looks up each cited hadith's grade from the SourceRef metadata (NOT from the LLM), attaches the explanation to `grade_explanations`, and computes the answer-level warning. This is a Pillar 4 post-generation enrichment — the grade comes from the actual metadata, preventing the LLM from hallucinating or misreading grades.
+    * `query()` method now calls `_enrich_report_with_grades` as Step 4b.
+  * Updated `scripts/test_pipeline.py`:
+    * `print_report()` now shows the answer-level warning FIRST (before the report), so the user sees the most critical information before reading the answer.
+    * Each direct_report that has a grade explanation shows it with a 📚 icon.
+
+#### 3. Impacted Files
+* [grades.py](file:///home/z/my-project/repos/nur/src/nur/grades.py) — Created grade education + warning system.
+* [pipeline.py](file:///home/z/my-project/repos/nur/src/nur/pipeline.py) — Added grade enrichment step + PipelineResult fields.
+* [test_pipeline.py](file:///home/z/my-project/repos/nur/scripts/test_pipeline.py) — Updated to display warnings + grade explanations.
+* [PHASES.md](file:///home/z/my-project/repos/nur/docs/PHASES.md) — Updated pipeline.py checklist entry.
+
+#### 4. Validation
+* **Agent-side validation (passed):**
+  * `grades.py` module imports cleanly.
+  * Grade normalization: tested 10 raw grade strings → all normalize correctly (Sahih, Hasan, Da'if, Mawdu, Ungraded, empty, None).
+  * Answer warning logic: tested 8 grade-level combinations → all produce the correct warning level (NONE, SMALL, BIG, CRITICAL) per the two-tier logic.
+  * `WarningLevel` IntEnum comparison works: CRITICAL > BIG > SMALL > NONE.
+  * Pipeline imports cleanly with the new grade integration.
+  * `PipelineResult` has the new `answer_warning` and `grade_explanations` fields.
+* **Live integration validation (DEFERRED TO USER per Rule 3):**
+  * The user MUST re-run `python scripts/test_pipeline.py` to see the grade warnings in action. For the default "charity and zakat" query, the answer contains Quran verses + 1 Sahih hadith (Bukhari #4661) → expected: NO answer warning, but the hadith's grade explanation should appear.
+
+---
+
 ## Future Architectural Plans
 
 ### [Phase 2] — LLM-Synthesized Contextual Retrieval via Kaggle GPUs

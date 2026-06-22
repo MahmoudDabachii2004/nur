@@ -37,12 +37,21 @@ first (RPM, RPD, TPM, or TPD).
 | **Reporter** (Step 4, primary) | `meta-llama/llama-4-scout-17b-16e-instruct` | 30 | 30,000 | Deep reasoning, native Arabic, supports `json_schema` for strict structured output. |
 | **Reporter** (extreme Ikhtilaf fallback) | `llama-3.3-70b-versatile` | 30 | 12,000 | Maximum reasoning power for complex theological conflicts. |
 
-**Throughput math for one user query**:
-- Architect call: ~200 input tokens + ~100 output tokens = ~300 tokens
-- Reporter call: ~4,000 input tokens (context) + ~800 output tokens = ~4,800 tokens
-- **Total per query: ~5,100 tokens**
-- At Scout's 30K TPM: ~6 queries per minute max (limited by 30 RPM → 30 queries/min, but TPM is the real ceiling)
-- At 30 RPM: 30 queries/min sustained, 1,000 queries/day max
+**Throughput math for one user query** (verified from Groq dashboard, 2026-06-22):
+
+| Call | Input tokens | Output tokens | Total | % of TPM limit |
+|------|-------------|---------------|-------|-----------------|
+| Architect (8b-instant) | 657 | 60 | 717 | 12% of 6K TPM |
+| Reporter (Scout 17b) | 16,600 | 937 | 17,537 | 59% of 30K TPM |
+| **Total per query** | **17,257** | **997** | **18,254** | — |
+
+**Key takeaway**: The Reporter's input tokens (16.6K) dominate because we send 10 retrieved chunks as context (~1,600 tokens per chunk including the bilingual context prefix). This means:
+- **~1 query per minute max** on the free tier (59% of TPM per query → can't do 2 in the same minute)
+- The 30 RPM request limit is NOT the bottleneck — TPM is
+- If we need faster throughput, we must either (a) send fewer chunks, (b) compress the chunk context, or (c) upgrade to the Developer plan
+
+**Rate limit headers** (from the dashboard, 2026-06-22):
+- The dashboard shows 25 RPM, not 30 RPM as the docs table states. This may be an org-level setting or a free-tier reduction. Treat 25 RPM as the real ceiling.
 
 ---
 

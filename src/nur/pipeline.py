@@ -45,6 +45,13 @@ from FlagEmbedding import BGEM3FlagModel
 
 from src.nur.config import settings, CHROMA_PATH, SPARSE_PATH
 from src.nur.generator import Generator, ReporterOutput
+from src.nur.grades import (
+    GRADE_INFO,
+    WarningLevel,
+    get_answer_warning,
+    get_grade_info,
+    normalize_grade_level,
+)
 from src.nur.retriever.dense import DenseRetriever
 from src.nur.retriever.fusion import RRFFuser
 from src.nur.retriever.sparse import SparseRetriever
@@ -82,6 +89,20 @@ class PipelineResult:
     report: ReporterOutput | None = None
     """The final structured JSON report from the Reporter (Step 4). None if
     the pipeline failed before generation."""
+
+    answer_warning: str | None = None
+    """The answer-level warning computed from the hadith grades in the report
+    (Step 4 post-processing). Implements the two-tier warning logic from
+    src/nur/grades.py: CRITICAL if any Mawdu', BIG if only Da'if (no
+    Sahih/Hasan), SMALL if Da'if alongside Sahih/Hasan, NONE otherwise.
+    This is a Pillar 4 post-generation enrichment — the grade comes from the
+    metadata, NOT from the LLM."""
+
+    grade_explanations: dict[str, str] = field(default_factory=dict)
+    """A map of source_id → plain-language grade explanation, for each hadith
+    cited in the report. The CLI displays this so users understand what
+    'Sahih', 'Hasan', 'Da'if', 'Mawdu' mean. Quran and Tafsir sources are
+    excluded (they don't have grades)."""
 
     error: str | None = None
     """If the pipeline failed, the error message. None on success."""
@@ -381,6 +402,74 @@ class NURPipeline:
         # Should never reach here
         raise ValueError(f"Unknown source type: {source}")
 
+    def _enrich_report_with_grades(self, result: PipelineResult) -> PipelineResult:
+        """Attach grade info to each direct_report and compute the answer warning.
+
+        This is a Pillar 4 (Post-Generation Verification) enrichment step. The
+        Reporter LLM generates direct_reports with source_id, source_type,
+        arabic_text, and report — but NOT the grade. We attach the grade
+        AFTER generation, looking it up from the SourceRef metadata that was
+        injected into the prompt. This prevents the LLM from hallucinating or
+        misreading grades.
+
+        Also computes the answer-level warning using the two-tier logic from
+        src/nur/grades.py:
+          - CRITICAL if any Mawdu' (fabricated) hadith is cited.
+          - BIG if only Da'if hadiths are cited (no Sahih/Hasan).
+          - SMALL if Da'if is cited alongside Sahih/Hasan.
+          - NONE if only Sahih/Hasan (or no hadiths at all).
+
+        Args:
+            result: The PipelineResult after Step 4 (report generated).
+
+        Returns:
+            The same PipelineResult with `answer_warning` and
+            `grade_explanations` populated.
+        """
+        if not result.report or not result.top_chunks:
+            return result
+
+        # Build a map of source_id (S1, S2, ...) → SourceRef for quick lookup
+        source_map: dict[str, SourceRef] = {
+            f"S{i+1}": ref for i, ref in enumerate(result.top_chunks)
+        }
+
+        # Collect grade levels for all HADITH sources cited in the report
+        # (Quran and Tafsir don't have grades — they're excluded from the
+        # answer-warning calculation)
+        hadith_grade_levels: list[str] = []
+
+        for direct_report in result.report.direct_reports:
+            ref = source_map.get(direct_report.source_id)
+            if not ref:
+                continue
+
+            # Only hadiths have grades. Quran = Word of Allah, Tafsir = commentary.
+            if ref.kind == "hadith" and ref.grade:
+                grade_info = get_grade_info(ref.grade)
+                level = grade_info["level"]
+
+                # Store the explanation for the CLI to display
+                result.grade_explanations[direct_report.source_id] = (
+                    f"{grade_info['label']} — {grade_info['explanation']}"
+                )
+
+                hadith_grade_levels.append(level)
+
+                # Attach the grade level to the direct_report for downstream use
+                # (the CLI can read direct_report.grade_level if it wants)
+                # Note: we can't modify the Pydantic model's fields here because
+                # grade/grade_level aren't defined on DirectReport. The
+                # grade_explanations dict on PipelineResult is the canonical
+                # place for this info. Phase 4 will add formal fields to
+                # DirectReport when we implement the verification schema.
+
+        # Compute the answer-level warning from the collected hadith grades
+        warning_level, warning_text = get_answer_warning(hadith_grade_levels)
+        result.answer_warning = warning_text
+
+        return result
+
     def query(
         self,
         user_query: str,
@@ -437,6 +526,15 @@ class NURPipeline:
                 force_reasoning=force_reasoning,
             )
             print(f"   ✅ Report generated with {len(result.report.direct_reports)} direct reports.")
+
+            # ── Step 4b: Grade Enrichment (Pillar 3 + Pillar 4) ──
+            # Attach grade info to each direct_report and compute the
+            # answer-level warning. This is post-generation enrichment — we
+            # use the actual metadata, NOT the LLM's copy of the grade.
+            # This prevents the LLM from hallucinating or misreading grades.
+            result = self._enrich_report_with_grades(result)
+            if result.answer_warning:
+                print(f"   ⚠️ Answer warning: {result.answer_warning[:80]}...")
 
             # ── Step 5: (Phase 4 — Post-Generation Verification goes here) ──
             # TODO Phase 4: NLI verification + Arabic character matching
