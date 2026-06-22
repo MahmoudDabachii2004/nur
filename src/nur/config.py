@@ -86,13 +86,16 @@ class Settings(BaseSettings):
 
     # Pool sizes:
     # - top_k_initial: how many chunks to retrieve per (query, source) pair
-    #   before dedup. Increased from 30 to 100 in Phase 3 (DEC-031) to improve
-    #   recall — the Phase 2 baseline recall was only 21% (3/14 key verses
-    #   found). More chunks = better chance of finding direct verse proofs.
+    #   before dedup. Set to 400 (DEC-034) based on empirical recall testing:
+    #     pool=100 → 29% recall, pool=200 → 29%, pool=300 → 36%,
+    #     pool=400 → 50%, pool=500 → 50% (no improvement past 400).
+    #   The reranker then scores all 400 chunks (~20-40s on M4 MPS) and keeps
+    #   the top 10. Key verses like 2:43 ("establish prayer") are found at
+    #   rank 349 — only reachable with pool >= 400.
     # - top_k_rerank: how many chunks to send to the LLM after reranking.
     #   Capped at 10 by Groq's 30K TPM limit (10 chunks × 1,660 tokens = 16,600
     #   tokens = 59% of TPM per query).
-    top_k_initial: int = 100
+    top_k_initial: int = 400
     top_k_rerank: int = 10
     top_k_final: int = 5
 
