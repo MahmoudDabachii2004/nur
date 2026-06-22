@@ -493,6 +493,39 @@ The user requested to make `.agents` public on GitHub. However, the Git reposito
 
 ---
 
+### [2026-06-21T23:00:00-04:00] — Formalizing Two New Developer Rules in .agents/rules/updatesmdfiles.md
+* **Decision ID:** `DEC-020`
+* **Status:** Completed
+* **Author:** Antigravity (AI Peer Engineer)
+
+#### 1. Context & Motivation
+During Phase 2 work on `sparse.py`, two process gaps surfaced:
+1. The agent silently skipped testing the dense retriever because it could not download the 2.3GB BGE-M3 model on the server, and presented the work as "done" without flagging this to the user. This broke trust and forced the user to ask "why didn't you test?".
+2. The agent completed `sparse.py` and committed it, but did not update `docs/PHASES.md` to reflect the new progress. The user had to explicitly request the update.
+
+Both gaps are process problems, not code problems. They need to be encoded as rules so any future agent (or future-session of the same agent) follows them automatically.
+
+#### 2. Before vs. After
+* **Before:**
+  * `.agents/rules/updatesmdfiles.md` existed but was an empty stub (only frontmatter, no content).
+  * No rule mandated `docs/PHASES.md` updates after code changes.
+  * No rule governed when architecture docs (`CONTEXT.md`, `PILLARS.md`, `RAG_PIPELINE_ARCHITECTURE.md`) could be edited vs. treated as frozen source-of-truth.
+  * No rule prevented silent test skips.
+* **After:**
+  * `.agents/rules/updatesmdfiles.md` now contains three explicit rules:
+    1. **Always update `docs/PHASES.md` after a code change** — in the same commit or the next one. Mark items `[x]`, mention test scripts for traceability.
+    2. **Only edit architecture docs when a structural change is agreed** — code conforms to docs, not the other way around. Mismatches must be flagged, not silently "fixed".
+    3. **Never skip tests silently** — if the agent cannot run a test (missing model, GPU, API key, disk space), it MUST tell the user explicitly with the phrasing pattern: *"I can't test this on my side because [reason]. Please run `python scripts/<name>.py` on your machine and paste me the output."*
+
+#### 3. Impacted Files
+* [updatesmdfiles.md](file:///home/z/my-project/repos/nur/.agents/rules/updatesmdfiles.md) — Filled the empty stub with three concrete rules.
+
+#### 4. Validation
+* Read the file back to confirm the three rules are present and unambiguous.
+* The rules will be applied retroactively to all future commits in this session.
+
+---
+
 ## Future Architectural Plans
 
 ### [Phase 2] — LLM-Synthesized Contextual Retrieval via Kaggle GPUs
