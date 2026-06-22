@@ -142,6 +142,7 @@ src/nur/
 - [ ] Build evaluation dataset: 50-100 questions with expected answers and sources.
 - [ ] Implement RAGAS (faithfulness, answer relevancy, context precision/recall).
 - [ ] Islamic metrics: Source Attribution Accuracy, Madhhab Consistency, Ikhtilaf Awareness, Quranic Accuracy, Hadith Grading Accuracy, Abstention Rate.
+- [ ] **Re-index Quran chunks with standard surah:ayah numbering** (DEC-030). The current DB uses global cumulative numbering, which causes `SourceRef.source_id`, `url`, and `display_label` to show the WRONG verse numbers to users. Fix: re-download from alquran.cloud `/surah/{n}` endpoint (returns both `numberInSurah` and `numberInQuran`), store both in metadata, regenerate chunk IDs with standard numbering, re-embed all 6,236 Quran chunks with BGE-M3. See `docs/DATA_SOURCES.md` section 9 issue #6 for the full mapping table and root cause.
 
 **Deliverable**: Objective quality metrics, weak points identified.
 

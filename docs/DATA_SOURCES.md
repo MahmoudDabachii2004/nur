@@ -367,3 +367,43 @@ the terms in the repository's `LICENSE` file.
 4. **alquran.cloud has no formal license**: The Quran text itself is the Word of Allah and not subject to copyright. The Saheeh International translation is copyrighted by its publisher but alquran.cloud distributes it as a public service. NUR uses it under fair use for educational/religious purposes. If Saheeh International ever requests removal, we must switch to a public-domain English translation (e.g. Clear Quran or Muhammad Asad).
 
 5. **Tanzil as the deeper upstream**: alquran.cloud's Uthmani text ultimately traces back to <https://tanzil.net>, the canonical open-source Quranic text project. Tanzil publishes the text under a public-domain-style license. We do not download from Tanzil directly, but if alquran.cloud ever goes offline, Tanzil is the fallback.
+
+6. **⚠️ CRITICAL — Quran chunks use GLOBAL ayah numbering, not standard surah:ayah** (discovered 2026-06-22, DEC-030):
+
+   The NUR Quran collection (`quran_dense`) uses **cumulative/global ayah numbering** for both the chunk ID and the `ayah_num` metadata field. This means `quran_4_596` is NOT standard 4:596 — it is standard 4:103 (the global count: 7 Al-Fatihah + 286 Al-Baqarah + 200 Al Imran + 103 An-Nisa = 596).
+
+   This was discovered during Phase 3 recall testing. The `scripts/test_recall.py` audit showed that searching for `quran_2_43` (standard 2:43 "establish prayer") returned a chunk with text "But Satan caused them to slip out of it" (which is standard 2:36). Direct text-content matching against the alquran.cloud API confirmed the offset:
+
+   | Standard surah:ayah | DB chunk ID | DB `ayah_num` | Offset | Standard verse content |
+   |---|---|---|---|---|
+   | 2:3 | `quran_2_10` | 10 | +7 | "establish prayer" (foundational) |
+   | 2:43 | `quran_2_50` | 50 | +7 | "establish prayer and give zakah" |
+   | 2:83 | `quran_2_90` | 90 | +7 | covenant of Children of Israel |
+   | 2:110 | `quran_2_117` | 117 | +7 | "establish prayer and give zakah" |
+   | 2:277 | `quran_2_284` | 284 | +7 | "establish prayer and give zakah" |
+   | 4:77 | `quran_4_570` | 570 | +493 | "restrain hands and establish prayer" |
+   | 4:103 | `quran_4_596` | 596 | +493 | "prayer decreed, remember Allah" |
+   | 8:3 | `quran_8_1163` | 1163 | +1160 | "the ones who establish prayer" |
+   | 9:5 | `quran_9_1240` | 1240 | +1235 | "sacred months have passed" |
+   | 9:11 | `quran_9_1246` | 1246 | +1235 | "repent, establish prayer, give zakah" |
+   | 9:18 | `quran_9_1253` | 1253 | +1235 | "maintain mosques, establish prayer" |
+
+   The offset increases with each surah (+7 for surah 2, +493 for surah 4, +1235 for surah 9), confirming cumulative global numbering from 1 to 6,236.
+
+   **Impact on the system**:
+   - `SourceRef.source_id` generates IDs like `SRC-QURAN-2-255` using the DB's `ayah_num` — so `SRC-QURAN-2-255` actually points to standard 2:248, NOT 2:255. This is **theologically misleading** in the UI.
+   - The `url` property generates `https://quran.com/2/255` using the same DB `ayah_num` — so the clickable link takes the user to the WRONG verse on quran.com.
+   - The `display_label` shows "Quran 2:255" but the Arabic text shown is actually 2:248's text.
+
+   **Root cause**: The Phase 1 ingestion script `scripts/01_download_quran.py` downloaded from alquran.cloud's `/quran/quran-uthmani` endpoint, which returns ayahs with `numberInQuran` (global) instead of `numberInSurah` (standard). The chunking script `scripts/04_normalize_and_chunk.py` then used this global number as both the chunk ID suffix and the `ayah_num` metadata field.
+
+   **Fix (Phase 8 — re-indexing task)**:
+   1. Re-download from alquran.cloud using the `/surah/{surah_number}` endpoint, which returns both `numberInSurah` (standard) and `numberInQuran` (global).
+   2. Store BOTH in metadata: `ayah_num` (standard, for display + URL) and `ayah_num_global` (global, for legacy compatibility).
+   3. Regenerate chunk IDs with standard numbering: `quran_2_43` (not `quran_2_50`).
+   4. Re-embed all 6,236 Quran chunks with BGE-M3 (requires a Colab/Lightning run).
+   5. Update `scripts/test_recall.py` RECALL_CHECKS to use standard numbering exclusively.
+
+   **Workaround until Phase 8**: The `scripts/test_recall.py` script uses the DB `ayah_num` values directly (verified by text matching) for recall auditing. The recall check matches by metadata `surah_num` + `ayah_num` (global), so it correctly identifies whether a verse was retrieved. The `SourceRef` display issue (wrong verse number shown to users) is a known cosmetic bug — the Arabic text and English translation are still correct, only the reference number is wrong.
+
+   **Authoritative source for verse identification**: The alquran.cloud search API (`http://api.alquran.cloud/v1/search/{keyword}/all/en.sahih`) returns the standard `numberInSurah` for each match. This is the canonical reference for "which verses are about topic X".

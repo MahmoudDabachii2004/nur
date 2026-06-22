@@ -938,6 +938,45 @@ Phase 3 requires the `bge-reranker-v2-m3` cross-encoder reranker. Before writing
 
 ---
 
+### [2026-06-22T04:30:00-04:00] — Discovering Critical Data-Quality Issue: Quran Chunks Use Global Ayah Numbering
+* **Decision ID:** `DEC-030`
+* **Status:** Completed (documented; fix deferred to Phase 8)
+* **Author:** Antigravity (AI Peer Engineer)
+
+#### 1. Context & Motivation
+During Phase 3 recall testing, the agent built a recall audit script (`scripts/test_recall.py`) that checked whether specific "expected" Quran verses (2:43, 4:103, etc.) appeared in the retriever's top-100 results. The first run reported 9% recall, which seemed implausibly low given that the top-10 chunks were visibly about prayer. The user correctly insisted: "don't trust your DB to identify which verses are about prayer — search online for the authoritative list." This led to discovering that the DB uses a non-standard ayah numbering scheme.
+
+#### 2. Before vs. After
+* **Before:**
+  * The agent assumed the DB's `ayah_num` metadata field used standard surah:ayah numbering (e.g., `quran_2_43` = standard 2:43).
+  * Recall checks used standard verse numbers and reported 9% recall — but this was a false alarm caused by the numbering mismatch.
+  * The agent initially tried to "fix" the recall check by using the DB's chunk IDs directly, but this was also wrong because the agent's "expected" list was based on standard numbering.
+* **After:**
+  * **Verified the authoritative verse list** by querying the alquran.cloud search API (`http://api.alquran.cloud/v1/search/establish%20prayer/all/en.sahih`), which returned 35 verses with their standard `numberInSurah` values. This is the SAME edition our DB uses (en.sahih), so it's the canonical reference.
+  * **Verified the DB numbering by text-content matching**: for each API verse, found the DB chunk whose `text_en` starts with the same prefix. This produced an unambiguous mapping:
+    - Standard 2:3 → DB `quran_2_10` (ayah_num=10, offset +7)
+    - Standard 2:43 → DB `quran_2_50` (ayah_num=50, offset +7)
+    - Standard 4:77 → DB `quran_4_570` (ayah_num=570, offset +493)
+    - Standard 9:5 → DB `quran_9_1240` (ayah_num=1240, offset +1235)
+  * The offset increases with each surah, confirming **cumulative global numbering** (1 to 6,236) rather than per-surah numbering.
+  * **Root cause identified**: the Phase 1 ingestion script `scripts/01_download_quran.py` used alquran.cloud's `/quran/quran-uthmani` endpoint, which returns `numberInQuran` (global) instead of `numberInSurah` (standard). The chunking script then used this global number as both the chunk ID suffix and the `ayah_num` metadata field.
+  * **Impact documented in `docs/DATA_SOURCES.md` section 9, issue #6** (new): the `SourceRef.source_id`, `url`, and `display_label` all use the DB's `ayah_num`, so they show the WRONG verse number to users. Example: `SRC-QURAN-2-255` actually points to standard 2:248, and `https://quran.com/2/255` takes the user to the wrong verse. The Arabic text and English translation are still correct — only the reference number is wrong.
+  * **Fix scoped to Phase 8**: re-download from alquran.cloud using the `/surah/{n}` endpoint (which returns both numberings), store both in metadata, regenerate chunk IDs with standard numbering, and re-embed all 6,236 Quran chunks.
+  * **Workaround for Phase 3**: `scripts/test_recall.py` uses the DB `ayah_num` values directly (verified by text matching) for recall auditing. The recall check correctly identifies whether a verse was retrieved, even though the displayed verse numbers are wrong.
+
+#### 3. Impacted Files
+* [DATA_SOURCES.md](file:///home/z/my-project/repos/nur/docs/DATA_SOURCES.md) — Added section 9 issue #6 documenting the global ayah numbering bug, with the full mapping table, root cause, impact, fix plan, and workaround.
+* [test_recall.py](file:///home/z/my-project/repos/nur/scripts/test_recall.py) — RECALL_CHECKS updated with the 11 authoritative prayer verses using verified DB ayah_num values.
+* [PHASES.md](file:///home/z/my-project/repos/nur/docs/PHASES.md) — Phase 8 evaluation task added: re-index Quran chunks with standard surah:ayah numbering.
+
+#### 4. Validation
+* **Authoritative source verified**: alquran.cloud search API returned 35 verses for "establish prayer" in en.sahih — the same edition our DB uses. This is the canonical list.
+* **DB mapping verified by text content**: for each of the 11 curated verses, the DB chunk whose `text_en` matches the API verse's text was found. The mapping is unambiguous.
+* **Offset pattern confirmed**: the offset between standard `numberInSurah` and DB `ayah_num` increases monotonically with each surah (7, 493, 669, 789, 954, 1160, 1235), proving global cumulative numbering.
+* **User instruction honored**: the agent did NOT trust its own memory or the DB to identify prayer verses. It fetched the authoritative list from the source API and verified the mapping empirically.
+
+---
+
 ## Future Architectural Plans
 
 ### [Phase 2] — LLM-Synthesized Contextual Retrieval via Kaggle GPUs
