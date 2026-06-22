@@ -39,16 +39,17 @@ src/nur/
 │   ├── dense.py       # ChromaDB queries (4 collections parallel) ✅ DEC-015
 │   ├── sparse.py      # Sparse JSON dot-product scoring ✅ DEC-018
 │   └── fusion.py      # RRF fusion (k=25, α=0.4 dense / 0.6 sparse) ✅ DEC-021
-├── generator.py       # Groq API (Architect + Reporter) + Instructor + JSON Schema  ← Next
-└── cli.py             # Rich + Typer interactive CLI
+├── generator/         # Groq API (Architect + Reporter) + Instructor ✅ DEC-022
+│   └── __init__.py    # Architect, Reporter, Generator classes + Pydantic schemas
+└── cli.py             # Rich + Typer interactive CLI  ← Next
 ```
 
 **Progress checklist**:
 - [x] `dense.py` — DenseRetriever connected to ChromaDB. Tested via `scripts/benchmark_dense.py` with 6 queries (EN/FR/AR) across quran + hadith. All return on-topic results with healthy similarity scores (0.65+).
 - [x] `sparse.py` — SparseRetriever with inverted index. Tested via `scripts/test_sparse_search.py` (model-free, 3 self-similarity cases pass) + 6 stress tests (empty query, non-existent token, top_k edges, determinism, dot-product math). All pass.
 - [x] `fusion.py` — RRFFuser implementing Reciprocal Rank Fusion. Tested via `scripts/test_fusion.py` (pure-math, 9 tests pass: hand-computed scores, both-lists boost, single-list cases, top_k truncation, empty inputs, determinism, config defaults, invalid param validation). All pass.
-- [ ] `generator.py` — Groq API calls (Architect + Reporter) with `instructor` for structured JSON. **Next.**
-- [ ] `pipeline.py` — Orchestrator wiring retriever → fusion → generator.
+- [x] `generator/` — Architect (Step 1: query decomposition) + Reporter (Step 4: structured JSON report) + Generator facade. Uses `instructor` + Pydantic for schema enforcement, `tenacity` for retry on transient errors. Verified SDK API surface by inspecting installed `groq==1.5.0` and `instructor==1.15.3`. Pydantic schemas + system prompts validated on agent side. **Live API test deferred to user** (`scripts/test_generator.py`) — agent's GROQ_API_KEY returns 403 Forbidden, likely due to region/scope restriction. User must run on their Mac to validate end-to-end.
+- [ ] `pipeline.py` — Orchestrator wiring retriever → fusion → generator. **Next.**
 - [ ] `cli.py` — Rich + Typer interactive terminal chatbot.
 - [ ] End-to-end validation: real user question → cited, structured answer.
 

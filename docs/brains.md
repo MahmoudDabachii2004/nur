@@ -571,6 +571,54 @@ With `DenseRetriever` (DEC-015) and `SparseRetriever` (DEC-018) both working, th
 
 ---
 
+### [2026-06-21T23:45:00-04:00] — Implementing Generator (Architect + Reporter) with Groq + Instructor (Phase 2)
+* **Decision ID:** `DEC-022`
+* **Status:** Completed (code complete; live API test deferred to user per Rule 3)
+* **Author:** Antigravity (AI Peer Engineer)
+
+#### 1. Context & Motivation
+Phase 2 needs the two-LLM "Smart Archivist" generation pipeline defined in `docs/RAG_PIPELINE_ARCHITECTURE.md`:
+  - Step 1 (Architect): Decompose a complex user query into 1..N sub-questions targeting distinct jurisprudential themes. Uses `llama-3.1-8b-instant` on Groq (fast, cheap, high-volume).
+  - Step 4 (Reporter): Generate a strict JSON report from the Top-10 retrieved chunks. Uses `meta-llama/llama-4-scout-17b-16e-instruct` on Groq (30K TPM, deep reasoning). Falls back to `llama-3.3-70b-versatile` for extreme Ikhtilaf cases.
+
+The critical anti-hallucination requirement (Pillar 4) is that the Reporter must NEVER use its parametric knowledge — it can only report what the retrieved sources say. This is enforced structurally via the `instructor` library + Pydantic schemas that force the LLM to fill `{conflict_detection, direct_reports, synthesis}` before any synthesis is produced.
+
+#### 2. Before vs. After
+* **Before:**
+  * `src/nur/generator/__init__.py` was an empty stub. No LLM calls were possible.
+  * The architecture doc specified the LLM lineup (DEC-017 synced config.py) but no code consumed it.
+* **After:**
+  * Created `src/nur/generator/__init__.py` with 3 classes + 3 Pydantic models:
+    * **`Architect`** — wraps `instructor.from_groq(client, mode=Mode.JSON_SCHEMA)`. Method `decompose(user_query) -> list[str]` returns 1..6 sub-questions. System prompt enforces same-language output and forbids answering the question.
+    * **`Reporter`** — same instructor wrapper. Method `generate(user_query, sources_xml, force_reasoning=False) -> ReporterOutput`. System prompt enforces the "Strict Archivist" persona: no parametric knowledge, no invented logical links, verbatim Arabic text, mandatory source ID citation.
+    * **`Generator`** — convenience facade grouping Architect + Reporter with a shared Groq client (one connection pool instead of two).
+    * **Pydantic models** — `SubQuestions`, `DirectReport`, `ReporterOutput`. These define the strict JSON schemas that `instructor` forces the LLM to fill. Field-level descriptions tell the LLM exactly what each field must contain.
+  * Retry logic via `tenacity` (3 attempts, exponential backoff 2-10s) handles transient 429/5xx errors. Phase 3 will add the Ollama offline fallback after retries are exhausted.
+  * Created `scripts/test_generator.py` with 2 live API tests:
+    1. Architect test — decomposes the marital-dilemma example query from the architecture doc.
+    2. Reporter test — feeds 3 real zakat-related Quran chunks (pulled from ChromaDB and saved as `scripts/_fixtures_zakat.json`) and validates the structured output: source IDs match injected IDs, Arabic text is non-empty, synthesis cites valid `[SX]` references.
+  * **SDK verification (Rule 7 — never trust memory for library APIs):** Inspected the installed `groq==1.5.0` SDK signature for `chat.completions.create` directly. Confirmed that `meta-llama/llama-4-scout-17b-16e-instruct`, `llama-3.1-8b-instant`, and `llama-3.3-70b-versatile` are all in the accepted model literal. Confirmed `response_format`, `temperature`, `max_tokens`, `frequency_penalty` parameters exist. Confirmed `instructor.from_groq` and `instructor.Mode.JSON_SCHEMA` exist in `instructor==1.15.3`.
+
+#### 3. Impacted Files
+* [generator/__init__.py](file:///home/z/my-project/repos/nur/src/nur/generator/__init__.py) — Created Architect, Reporter, Generator classes + Pydantic schemas + system prompts.
+* [test_generator.py](file:///home/z/my-project/repos/nur/scripts/test_generator.py) — Created live API test script (2 tests).
+* [_fixtures_zakat.json](file:///home/z/my-project/repos/nur/scripts/_fixtures_zakat.json) — 3 real zakat-related Quran chunks pulled from ChromaDB, used as Reporter test input.
+
+#### 4. Validation
+* **Agent-side validation (passed):**
+  * Module imports cleanly: `from src.nur.generator import Architect, Reporter, Generator, SubQuestions, DirectReport, ReporterOutput` works.
+  * Pydantic schemas validate against synthetic data (constructed a `ReporterOutput` manually, all fields accepted).
+  * System prompts contain the critical rules (`"NEVER use your pre-trained parametric knowledge"`, `"character-for-character"`, `"MUST explicitly cite source IDs"`).
+  * Fixture loading + XML rendering via existing `render_sources_for_prompt()` produces a 1405-char prompt with 3 `<document>` blocks.
+* **Live API validation (DEFERRED TO USER per Rule 3):**
+  * The agent's GROQ_API_KEY returns HTTP 403 Forbidden on both `models.list()` and `chat.completions.create`. This is likely a region or scope restriction on the key — the key itself is valid (length 56, correct `gsk_` prefix), but the agent server is not authorized to call the API.
+  * The user MUST run `python scripts/test_generator.py` on their Mac to validate:
+    1. The Architect returns 1-6 sub-questions in the same language as the query.
+    2. The Reporter returns a `ReporterOutput` with valid source IDs, non-empty Arabic text, and a synthesis that cites `[SX]` IDs that exist in `direct_reports`.
+  * The test script prints clear diagnostics if the API call fails (missing key, rate limit, network).
+
+---
+
 ## Future Architectural Plans
 
 ### [Phase 2] — LLM-Synthesized Contextual Retrieval via Kaggle GPUs

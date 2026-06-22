@@ -1,0 +1,32 @@
+[
+  {
+    "id": "quran_2_222",
+    "surah_num": 2,
+    "surah_name_en": "Al-Baqarah",
+    "surah_name_ar": "البقرة",
+    "ayah_num": 222,
+    "text_ar": "يَسْـَٔلُونَكَ مَاذَا يُنفِقُونَ ۖ قُلْ مَآ أَنفَقْتُم مِّنْ خَيْرٍۢ فَلِلْوَٰلِدَيْنِ وَٱلْأَقْرَبِينَ وَٱلْيَتَٰمَىٰ وَٱلْمَسَٰكِينِ وَٱبْنِ ٱلسَّبِيلِ ۗ وَمَا تَفْعَلُوا۟ مِنْ خَيْرٍۢ فَإِنَّ ٱللَّهَ بِهِۦ عَلِيمٌۭ",
+    "text_en": "They ask you, [O Muhammad], what they should spend. Say, \"Whatever you spend of good is [to be] for parents and relatives and orphans and the needy and the traveler. And whatever you do of good - indeed, Allah is Knowing of it.\"",
+    "url": "https://quran.com/2/222"
+  },
+  {
+    "id": "quran_69_5357",
+    "surah_num": 69,
+    "surah_name_en": "Al-Haqqah",
+    "surah_name_ar": "الحاقة",
+    "ayah_num": 5357,
+    "text_ar": "وَلَا يَحُضُّ عَلَىٰ طَعَامِ ٱلْمِسْكِينِ",
+    "text_en": "Nor did he encourage the feeding of the poor.",
+    "url": "https://quran.com/69/5357"
+  },
+  {
+    "id": "quran_70_5400",
+    "surah_num": 70,
+    "surah_name_en": "Al-Ma'arij",
+    "surah_name_ar": "المعارج",
+    "ayah_num": 5400,
+    "text_ar": "لِّلسَّآئِلِ وَٱلْمَحْرُومِ",
+    "text_en": "For the petitioner and the deprived -",
+    "url": "https://quran.com/70/5400"
+  }
+]
