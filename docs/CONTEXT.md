@@ -60,5 +60,7 @@ Existing Islamic AI projects suffer from critical flaws that NUR is engineered t
 For exact implementation rules and step-by-step execution, refer strictly to the following documents:
 
 - **`docs/PILLARS.md`**: Read this for the exact functional and theological rules the system must follow (e.g., Authenticity Weighting, Ikhtilaf Awareness, Structured Citation Protocol). Do not deviate from these pillars.
-- **`docs/PHASES.md`**: Read this for the engineering roadmap, current task checklists, and technical key decisions (e.g., RRF parameters, LLM temperature constraints). 
-- **`AGENTS.md`**: Read this for the Software Engineering Rules (KISS, SOLID, baby steps, no hallucinated APIs) that must govern how the code is written.
+- **`docs/PHASES.md`**: Read this for the engineering roadmap, current task checklists, and technical key decisions (e.g., RRF parameters, LLM temperature constraints).
+- **`docs/RAG_PIPELINE_ARCHITECTURE.md`**: Read this for the exact, definitive sequence of operations for the NUR RAG pipeline (Architect → Fetch → Reranker → Reporter → Verification).
+- **`docs/DATA_SOURCES.md`**: Read this for the provenance of every piece of Islamic text in the NUR database — where it was downloaded from, under what license, and how to audit it if a user reports a problematic hadith or verse.
+- **`.agents/rules/`**: Read this for the Software Engineering Rules (PHASES.md updates, architecture doc freeze, no silent test skips) that must govern how the code is written.

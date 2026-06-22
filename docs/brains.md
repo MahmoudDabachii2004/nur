@@ -619,6 +619,51 @@ The critical anti-hallucination requirement (Pillar 4) is that the Reporter must
 
 ---
 
+### [2026-06-22T00:30:00-04:00] — Creating Data Sources & Provenance Document
+* **Decision ID:** `DEC-023`
+* **Status:** Completed
+* **Author:** Antigravity (AI Peer Engineer)
+
+#### 1. Context & Motivation
+The user raised a critical religious-integrity concern: if a user one day reports that a hadith in NUR's output is fabricated (`Mawdu'`) or that a Quranic verse is mis-transcribed, we need to be able to trace the chunk back to its original upstream source in seconds. The provenance info existed only inside the docstrings of the 3 download scripts (`01_download_quran.py`, `02_download_hadith.py`, `03_download_tafsir.py`) — nowhere in `docs/`. If a script gets deleted or rewritten, the traceability is lost.
+
+This is especially important for an Islamic project where a wrong answer is theologically harmful (Pillar 4 — Absolute Reliability). The user explicitly asked: "we need to have source where we took them if one day there's a problem about one being false and haram".
+
+#### 2. Before vs. After
+* **Before:**
+  * Source URLs were buried in download-script docstrings.
+  * No central document recorded the license of each upstream source.
+  * No documented procedure for auditing a problematic hadith or verse.
+  * No chain-of-custody diagram showing the full pipeline from upstream source to final ChromaDB chunk.
+  * `docs/CONTEXT.md` section 5 (Guiding Documents) referenced a non-existent `AGENTS.md` file and did not mention the existing `RAG_PIPELINE_ARCHITECTURE.md`.
+* **After:**
+  * Created `docs/DATA_SOURCES.md` with 9 sections covering:
+    1. Summary table of the 3 upstream sources and what they contribute (52,446 chunks total).
+    2. Source 1 — Quran (alquran.cloud): editions, upstream provider, license, download script, verification commands.
+    3. Source 2 — Hadith (meeAtif/hadith_datasets on HuggingFace): 6 collections, per-hadith fields, the critical "do NOT construct sunnah.com URLs dynamically" rule, verification commands.
+    4. Source 3 — Tafsir Ibn Kathir (spa5k/tafsir_api on GitHub): both AR + EN editions, full chain of custody (qul.tarteel.ai → spa5k → NUR), the upstream `tafisr` typo warning, verification commands.
+    5. Full chain-of-custody ASCII diagram: upstream → download scripts → normalize → LLM context synthesis → BGE-M3 embedding → ChromaDB + sparse JSON.
+    6. Re-download instructions (full pipeline + Lightning AI fast path).
+    7. **Audit procedure** — step-by-step what to do if a user reports a problematic hadith: identify the chunk by `source_id`, locate it in ChromaDB, verify against the upstream URL, re-download if corrupted, report upstream if the upstream itself is wrong. Explicit rule: "Do NOT silently correct the data in NUR's local copy — log the discrepancy in docs/brains.md with a new Decision ID."
+    8. License summary table (alquran.cloud has no explicit license; meeAtif is MIT; spa5k is MIT).
+    9. Known issues & caveats: the tafsir folder typo, hadith grade normalization, missing checksums (Phase 8 task), alquran.cloud's lack of formal license, Tanzil as the deeper fallback.
+  * Updated `docs/CONTEXT.md` section 5 to list `DATA_SOURCES.md` and the existing `RAG_PIPELINE_ARCHITECTURE.md`, and to point to `.agents/rules/` instead of the non-existent `AGENTS.md`.
+
+#### 3. Impacted Files
+* [DATA_SOURCES.md](file:///home/z/my-project/repos/nur/docs/DATA_SOURCES.md) — Created the provenance and audit document.
+* [CONTEXT.md](file:///home/z/my-project/repos/nur/docs/CONTEXT.md) — Updated section 5 to list the new doc and fix the AGENTS.md reference.
+
+#### 4. Validation
+* Fetched the upstream licenses directly via `curl` to verify the documented licenses are accurate:
+  * `meeAtif/hadith_datasets` README YAML frontmatter confirms `license: mit`.
+  * `spa5k/tafsir_api` LICENSE file confirms MIT, copyright 2023 Spark.
+  * `alquran.cloud` has no explicit LICENSE file — confirmed by inspecting the API and the islamic.network site; the document records this honestly.
+* Fetched the spa5k README's tafsir source table to confirm the deeper upstream: AR Ibn Kathir ← `qul.tarteel.ai/resources/tafsir/22`, EN Ibn Kathir ← `qul.tarteel.ai/resources/tafsir/35`.
+* Confirmed Phase 1 ingestion date via `git log -- scripts/0[1-3]_download_*.py`: **2026-06-21**.
+* Verified the `tafisr` typo by directly fetching both URL variants on GitHub — only `en-tafisr-ibn-kathir/` returns 200.
+
+---
+
 ## Future Architectural Plans
 
 ### [Phase 2] — LLM-Synthesized Contextual Retrieval via Kaggle GPUs
