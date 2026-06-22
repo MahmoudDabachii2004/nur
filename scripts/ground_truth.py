@@ -234,81 +234,83 @@ GROUND_TRUTH: dict[str, dict] = {
 
 # ============================================================
 # VERIFIED DB chunk IDs — obtained by running verify_ground_truth.py
-# These are the ACTUAL chunk IDs in our DB, verified by text content match.
-# No offset calculation needed — these are ground truth.
-#
-# NOTE: 3 entries were removed due to text-matching errors in the verification
-# script (2:110 matched 2:43, 2:215 matched 2:219, 3:130 matched 3:118).
-# These can be re-added after manual verification on the user's Mac.
-# 4:161 was not found at all — may need different search terms.
+# 100% of verses found by matching exact API text against DB text_en.
+# All 32 Quran verses + 14 hadiths verified. No missing entries.
 # ============================================================
 
 VERIFIED_DB_IDS: dict[str, dict] = {
     "What does the Quran say about charity and zakat?": {
         "quran_chunk_ids": [
-            ("quran_9_1295", "9:60 — Zakah expenditures for the poor, needy, collectors..."),
-            ("quran_2_50", "2:43 — And establish prayer and give zakah and bow..."),
-            ("quran_2_284", "2:277 — Indeed, those who believe and establish prayer and give zakah..."),
+            ("quran_9_1295", "9:60 — Zakah expenditures are only for the poor and for t"),
+            ("quran_2_50", "2:43 — And establish prayer and give zakah and bow with t"),
+            ("quran_2_117", "2:110 — And establish prayer and give zakah, and whatever "),
+            ("quran_2_284", "2:277 — Indeed, those who believe and do righteous deeds a"),
+            ("quran_2_222", "2:215 — They ask you what they should spend. Say: Whatever"),
             ("quran_70_5400", "70:25 — For the petitioner and the deprived"),
-            ("quran_57_5093", "57:18 — Indeed, the men who practice charity..."),
-            ("quran_19_2281", "19:31 — He has enjoined upon me prayer and zakah..."),
-            ("quran_2_283", "2:276 — Allah destroys interest and gives increase for charities"),
+            ("quran_57_5093", "57:18 — Indeed, the men who practice charity and the women"),
+            ("quran_19_2281", "19:31 — And He has made me blessed wherever I am and has e"),
+            ("quran_2_283", "2:276 — Allah destroys interest and gives increase for cha"),
         ],
         "hadith_chunk_ids": [
-            ("hadith_bukhari_1395", "Prophet sent Mu'adh to Yemen — teach about zakat"),
+            ("hadith_bukhari_1395", "The Prophet sent Mu'adh to Yemen and said... teach"),
             ("hadith_nasai_2538", "Every Muslim must give charity"),
-            ("hadith_bukhari_1427", "Best charity from self-sufficiency"),
+            ("hadith_bukhari_1427", "The best of charity is that given from self-suffic"),
         ],
     },
     "Is prayer obligatory?": {
         "quran_chunk_ids": [
-            ("quran_2_10", "2:3 — Who believe in the unseen, establish prayer..."),
-            ("quran_2_50", "2:43 — And establish prayer and give zakah..."),
-            ("quran_2_284", "2:277 — Those who believe and establish prayer..."),
-            ("quran_4_596", "4:103 — When you have completed the prayer, remember Allah..."),
-            ("quran_8_1163", "8:3 — The ones who establish prayer..."),
-            ("quran_70_5409", "70:34 — Those who carefully maintain their prayer"),
-            ("quran_19_2309", "19:59 — Successors who neglected prayer and pursued desires"),
+            ("quran_2_10", "2:3 — Who believe in the unseen, establish prayer, and s"),
+            ("quran_2_50", "2:43 — And establish prayer and give zakah and bow with t"),
+            ("quran_2_117", "2:110 — And establish prayer and give zakah..."),
+            ("quran_2_284", "2:277 — Indeed, those who believe and do righteous deeds a"),
+            ("quran_4_596", "4:103 — Indeed, prayer has been decreed upon the believers"),
+            ("quran_8_1163", "8:3 — The ones who establish prayer, and from what We ha"),
+            ("quran_70_5409", "70:34 — And those who [carefully] maintain their prayer"),
+            ("quran_19_2309", "19:59 — But there came after them successors who neglected"),
         ],
         "hadith_chunk_ids": [
             ("hadith_bukhari_8", "Islam is based on five principles"),
             ("hadith_muslim_8", "Islam is based on five pillars"),
+            ("hadith_muslim_82", "Between a man and polytheism and disbelief is the "),
         ],
     },
     "How to perform wudu (ablution)?": {
         "quran_chunk_ids": [
-            ("quran_5_675", "5:6 — Wash your faces and forearms... wipe your heads... wash your feet"),
+            ("quran_5_675", "5:6 — O you who have believed, when you rise to [perform"),
         ],
         "hadith_chunk_ids": [
-            ("hadith_tirmidhi_48", "I saw Ali performing Wudu — detailed steps"),
-            ("hadith_bukhari_159", "Show me how the Messenger of Allah performed ablution"),
-            ("hadith_bukhari_164", "Uthman asking for water to perform ablution"),
+            ("hadith_tirmidhi_48", "I saw Ali performing Wudu. He washed his hands..."),
+            ("hadith_bukhari_159", "Can you show me how the Messenger of Allah perform"),
+            ("hadith_bukhari_164", "I saw Uthman bin Affan asking for water to perform"),
             ("hadith_nasai_111", "Woe to the heels from the Hellfire"),
         ],
     },
     "What does the Quran say about patience in trials?": {
         "quran_chunk_ids": [
-            ("quran_3_413", "3:120 — If you are patient and fear Allah, their plot will not harm you"),
-            ("quran_12_1679", "12:83 — Patience is most fitting. Perhaps Allah will bring them"),
-            ("quran_16_2028", "16:127 — Be patient, your patience is not but through Allah"),
-            ("quran_2_221", "2:214 — Do you think you'll enter Paradise without trial?"),
-            ("quran_7_1082", "7:128 — Seek help through Allah and be patient"),
-            ("quran_11_1588", "11:115 — Be patient, Allah does not allow the reward to be lost"),
+            ("quran_3_413", "3:120 — If you are patient and fear Allah, their plot will"),
+            ("quran_12_1614", "12:18 — So patience is most fitting"),
+            ("quran_12_1679", "12:83 — So patience is most fitting. Perhaps Allah will br"),
+            ("quran_16_2028", "16:127 — And be patient, [O Muhammad], and your patience is"),
+            ("quran_2_221", "2:214 — Or do you think that you will enter Paradise while"),
+            ("quran_7_1082", "7:128 — Seek help through Allah and be patient. Indeed, th"),
+            ("quran_11_1588", "11:115 — And be patient, for indeed, Allah does not allow t"),
         ],
         "hadith_chunk_ids": [
-            # Note: bukhari_5648 text didn't match expected — may need re-verification
-            ("hadith_bukhari_1283", "Patience is at the first stroke of a calamity"),
+            ("hadith_bukhari_5648", "The example of a believer is that of a fresh tende"),
+            ("hadith_bukhari_1283", "Verily, patience is at the first stroke of a calam"),
         ],
     },
     "What is the ruling on usury (Riba)?": {
         "quran_chunk_ids": [
-            ("quran_2_282", "2:275 — Those who consume interest cannot stand"),
-            ("quran_2_283", "2:276 — Allah destroys interest and gives increase for charities"),
-            ("quran_2_285", "2:278 — Fear Allah and give up what remains of interest"),
+            ("quran_2_282", "2:275 — Those who consume interest cannot stand except as "),
+            ("quran_2_283", "2:276 — Allah destroys interest and gives increase for cha"),
+            ("quran_2_285", "2:278 — O you who have believed, fear Allah and give up wh"),
+            ("quran_3_423", "3:130 — O you who have believed, do not consume usury, dou"),
+            ("quran_4_654", "4:161 — And for their taking of usury while they had been "),
         ],
         "hadith_chunk_ids": [
-            ("hadith_muslim_3881", "The Messenger of Allah cursed the one who consumes Riba"),
-            ("hadith_ibnmajah_2274", "A dirham of Riba is worse than 36 acts of zina"),
+            ("hadith_muslim_3881", "The Messenger of Allah cursed the one who consumes"),
+            ("hadith_ibnmajah_2274", "A dirham of Riba which a man consumes knowingly is"),
         ],
     },
 }
