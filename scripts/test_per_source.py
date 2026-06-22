@@ -144,17 +144,20 @@ def run_test(
     per_source_k: dict[str, int],
     label: str,
     mmr_lambda: float = 0.7,
+    use_reranker: bool = True,
 ) -> dict:
     """Run a single per-source retrieval test.
 
-    Returns a dict with: label, per_source_k, pool_size, source_dist,
-    top_10_ids, top_10_sources, top_10_scores, elapsed_s.
+    Args:
+        use_reranker: If True, score with cross-encoder + MMR. If False,
+                      take top-10 by RRF score only (instant, no model).
     """
     all_queries = [query] + sub_questions + search_keywords
     total_pool = sum(per_source_k.values())
 
+    mode = "WITH reranker + MMR" if use_reranker else "WITHOUT reranker (RRF only)"
     print(f"\n{'='*70}")
-    print(f"  Test: {label}")
+    print(f"  Test: {label} [{mode}]")
     print(f"  Per-source K: {per_source_k}")
     print(f"  Total pool: {total_pool}")
     print(f"{'='*70}")
@@ -165,19 +168,31 @@ def run_test(
     retrieved = retrieve_per_source(pipeline, all_queries, per_source_k)
     print(f"  Retrieved {len(retrieved)} unique chunks")
 
-    # Step 3: Rerank with MMR
-    chunks_with_docs = pipeline._fetch_chunk_documents(retrieved)
-    all_source_refs = pipeline._chunks_to_source_refs(retrieved)
+    if use_reranker:
+        # Step 3: Rerank with MMR
+        chunks_with_docs = pipeline._fetch_chunk_documents(retrieved)
+        all_source_refs = pipeline._chunks_to_source_refs(retrieved)
 
-    reranked = pipeline.reranker.rerank(
-        query=query,
-        chunks=chunks_with_docs,
-        source_refs=all_source_refs,
-        top_k=settings.top_k_rerank,
-        apply_authenticity_weight=True,
-        normalize=True,
-        mmr_lambda=mmr_lambda,
-    )
+        reranked = pipeline.reranker.rerank(
+            query=query,
+            chunks=chunks_with_docs,
+            source_refs=all_source_refs,
+            top_k=settings.top_k_rerank,
+            apply_authenticity_weight=True,
+            normalize=True,
+            mmr_lambda=mmr_lambda,
+        )
+    else:
+        # No reranker — just take top-10 by RRF score
+        reranked = []
+        for c in retrieved[:10]:
+            reranked.append({
+                "id": c["id"],
+                "source": c["source"],
+                "reranker_score": 0.0,  # no reranker score
+                "final_score": c["rrf_score"],
+                "rrf_score": c["rrf_score"],
+            })
 
     elapsed = time.time() - start
 
@@ -193,17 +208,23 @@ def run_test(
         print(f"    {source:12s}: {top10_dist.get(source, 0)}")
     print(f"  Top-10 chunks:")
     for i, c in enumerate(reranked, 1):
-        print(f"    {i:2d}. {c['id']:30s} ({c['source']:10s}) score={c['reranker_score']:.4f} final={c['final_score']:.4f}")
+        score = c.get("reranker_score", 0.0)
+        final = c.get("final_score", 0.0)
+        if use_reranker:
+            print(f"    {i:2d}. {c['id']:30s} ({c['source']:10s}) reranker={score:.4f} final={final:.4f}")
+        else:
+            print(f"    {i:2d}. {c['id']:30s} ({c['source']:10s}) rrf={final:.6f}")
 
     return {
-        "label": label,
+        "label": f"{label} [{'reranker' if use_reranker else 'RRF only'}]",
         "per_source_k": per_source_k,
+        "use_reranker": use_reranker,
         "pool_size": len(retrieved),
         "pool_dist": dict(pool_dist),
         "top10_dist": dict(top10_dist),
         "top_10_ids": [c["id"] for c in reranked],
         "top_10_sources": [c["source"] for c in reranked],
-        "top_10_scores": [c["reranker_score"] for c in reranked],
+        "top_10_scores": [c.get("reranker_score", 0.0) for c in reranked],
         "elapsed_s": elapsed,
     }
 
@@ -271,10 +292,11 @@ def main() -> None:
         ),
     ]
 
-    # Run all 4 tests
+    # Run 8 tests: 4 configs × with/without reranker
     results = []
     for per_source_k, label in configs:
-        result = run_test(
+        # WITHOUT reranker first (instant — just RRF top-10)
+        result_no_reranker = run_test(
             pipeline=pipeline,
             query=args.query,
             sub_questions=sub_questions,
@@ -282,8 +304,22 @@ def main() -> None:
             per_source_k=per_source_k,
             label=label,
             mmr_lambda=args.mmr_lambda,
+            use_reranker=False,
         )
-        results.append(result)
+        results.append(result_no_reranker)
+
+        # WITH reranker + MMR (~1 min)
+        result_reranker = run_test(
+            pipeline=pipeline,
+            query=args.query,
+            sub_questions=sub_questions,
+            search_keywords=search_keywords,
+            per_source_k=per_source_k,
+            label=label,
+            mmr_lambda=args.mmr_lambda,
+            use_reranker=True,
+        )
+        results.append(result_reranker)
 
     # Print comparative table
     print(f"\n\n{'='*90}")
