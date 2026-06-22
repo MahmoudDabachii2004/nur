@@ -63,4 +63,5 @@ For exact implementation rules and step-by-step execution, refer strictly to the
 - **`docs/PHASES.md`**: Read this for the engineering roadmap, current task checklists, and technical key decisions (e.g., RRF parameters, LLM temperature constraints).
 - **`docs/RAG_PIPELINE_ARCHITECTURE.md`**: Read this for the exact, definitive sequence of operations for the NUR RAG pipeline (Architect → Fetch → Reranker → Reporter → Verification).
 - **`docs/DATA_SOURCES.md`**: Read this for the provenance of every piece of Islamic text in the NUR database — where it was downloaded from, under what license, and how to audit it if a user reports a problematic hadith or verse.
-- **`.agents/rules/`**: Read this for the Software Engineering Rules (PHASES.md updates, architecture doc freeze, no silent test skips) that must govern how the code is written.
+- **`docs/GROQ_REFERENCE.md`**: Read this for the verified Groq rate limits and structured-output mode compatibility per model. Update it (and log a DEC entry) whenever Groq changes their limits or model lineup.
+- **`.agents/rules/`**: Read this for the Software Engineering Rules (PHASES.md updates, architecture doc freeze, no silent test skips, no guessing external capabilities) that must govern how the code is written.

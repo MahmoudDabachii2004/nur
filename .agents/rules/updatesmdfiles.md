@@ -22,3 +22,9 @@ trigger: always_on
   > "I can't test this on my side because [reason]. Please run `python scripts/<name>.py` on your machine and paste me the output."
 - NEVER silently skip a test and present the work as validated. The user must always know which parts are verified vs. unverified.
 - This rule exists because presenting unverified code as "done" breaks trust and causes bugs to surface much later when they are harder to trace.
+
+## 4. Never Guess External Capabilities — Ask the User to Verify
+- If you cannot access an external doc, API reference, rate-limit page, or model-compatibility matrix (e.g. it's JS-rendered and not scrapable, or behind auth), you MUST ask the user to check it for you or paste the relevant section.
+- The user can always say "I can't access it either" — that is an acceptable answer. In that case, proceed with the last known-good values from the project's reference docs (e.g. `docs/GROQ_REFERENCE.md`) and clearly mark the assumption as unverified.
+- NEVER hallucinate capabilities, rate limits, or model features from training memory. Library APIs evolve, models get deprecated, limits change. Memory-based guesses cause silent runtime failures (e.g. calling `json_schema` mode on a model that doesn't support it).
+- This rule exists because guessing about external systems is the #1 source of integration bugs. A 30-second question to the user saves a 30-minute debugging session.

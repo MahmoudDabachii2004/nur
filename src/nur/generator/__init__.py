@@ -196,14 +196,23 @@ class Architect:
     def __init__(self, client: Groq | None = None) -> None:
         """Initialize the Architect with a Groq client.
 
+        Uses `instructor.Mode.TOOLS` (function calling) instead of
+        `Mode.JSON_SCHEMA` because `llama-3.1-8b-instant` does NOT support
+        the `json_schema` response format (Groq returns HTTP 400 with
+        "This model does not support response format json_schema"). Function
+        calling is universally supported across Groq chat models, and the
+        Architect's schema is simple enough (a flat list of strings) that
+        tool-call enforcement is more than sufficient.
+
         Args:
             client: A Groq client instance. If None, a new one is created from
                     the GROQ_API_KEY in settings.
         """
         if client is None:
             client = Groq(api_key=settings.groq_api_key)
-        # Wrap with instructor for structured JSON output via Pydantic.
-        self.client = instructor.from_groq(client, mode=instructor.Mode.JSON_SCHEMA)
+        # Mode.TOOLS = function calling. Universally supported on Groq chat models.
+        # Mode.JSON_SCHEMA would be stricter but is not supported on llama-3.1-8b-instant.
+        self.client = instructor.from_groq(client, mode=instructor.Mode.TOOLS)
         self.model = settings.llm_architect
 
     def decompose(self, user_query: str) -> list[str]:

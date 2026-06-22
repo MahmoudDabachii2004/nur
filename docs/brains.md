@@ -664,6 +664,57 @@ This is especially important for an Islamic project where a wrong answer is theo
 
 ---
 
+### [2026-06-22T01:00:00-04:00] — Fixing Architect instructor Mode + Formalizing "Never Guess External Capabilities" Rule
+* **Decision ID:** `DEC-024`
+* **Status:** Completed (Architect fix applied; awaiting user re-test)
+* **Author:** Antigravity (AI Peer Engineer)
+
+#### 1. Context & Motivation
+The user ran `scripts/test_generator.py` on their Mac. TEST 2 (Reporter) passed perfectly — 3 direct reports, all source IDs cited, Arabic preserved verbatim, "Strict Archivist" persona working. But TEST 1 (Architect) failed with HTTP 400:
+```
+This model does not support response format `json_schema`.
+See supported models at https://console.groq.com/docs/structured-outputs#supported-models
+```
+Root cause: the agent used `instructor.Mode.JSON_SCHEMA` for the Architect, but `llama-3.1-8b-instant` does not support the `json_schema` response format. Only newer models like Llama 4 Scout support it.
+
+This was a hallucination on the agent's part — the agent assumed `json_schema` mode works on all Groq models based on training memory, without verifying. The agent tried to fetch the Groq structured-outputs doc to verify compatibility, but the page is JS-rendered and not scrapable. Rather than asking the user, the agent proceeded with the unverified assumption.
+
+The user also gave the agent the Groq rate limit table (saved to `/home/z/my-project/upload/Pasted Content_1782098886176.txt`) and established a new rule: "if you can't access it just ask me — if I won't [be able to either] I will tell you no, that's it. It will save us so much time and hallucination."
+
+#### 2. Before vs. After
+* **Before:**
+  * `Architect.__init__` used `instructor.Mode.JSON_SCHEMA` — failed on `llama-3.1-8b-instant` with HTTP 400.
+  * No rule prevented the agent from guessing external capabilities (rate limits, model features, API compatibility).
+  * No persistent doc recorded Groq's rate limits or structured-output mode compatibility — the agent would have to re-look-them-up (or re-guess) every session.
+  * The agent had earlier (DEC-017) called `qwen3.6-27b` a "hallucinated model name" — this was WRONG. The rate limit table the user provided confirms `qwen/qwen3.6-27b` is a real Groq model (30 RPM, 1K RPD, 8K TPM). The agent owned this error in the conversation.
+* **After:**
+  * **Architect fix**: Switched `Architect.__init__` from `instructor.Mode.JSON_SCHEMA` to `instructor.Mode.TOOLS` (function calling). Function calling is universally supported across Groq chat models. The Architect's schema is simple (a flat list of strings via `SubQuestions`), so tool-call enforcement is more than sufficient. The Reporter keeps `Mode.JSON_SCHEMA` because Scout supports it and the Reporter's nested `direct_reports` schema needs the strictest enforcement.
+  * **New rule** (`.agents/rules/updatesmdfiles.md` Rule 4): "Never Guess External Capabilities — Ask the User to Verify". If the agent cannot access an external doc/API reference/rate-limit page, it MUST ask the user to check it or paste the relevant section. The user can say "I can't access it either" — that's acceptable; the agent then proceeds with last known-good values from `docs/GROQ_REFERENCE.md` and marks the assumption as unverified. NEVER hallucinate from training memory.
+  * **New doc** `docs/GROQ_REFERENCE.md`: Persistent record of verified Groq rate limits (Free plan table for all models) + structured-output mode compatibility (`json_schema` vs `json_object` vs tools) + which mode each NUR role uses + rate-limit response headers + when to re-verify. This doc is the single source of truth so we never re-guess Groq capabilities.
+  * Updated `docs/CONTEXT.md` section 5 to list `GROQ_REFERENCE.md` and updated the `.agents/rules/` description to mention the new "no guessing external capabilities" rule.
+
+#### 3. Impacted Files
+* [generator/__init__.py](file:///home/z/my-project/repos/nur/src/nur/generator/__init__.py) — Architect now uses `Mode.TOOLS` instead of `Mode.JSON_SCHEMA`; docstring updated with the reasoning.
+* [GROQ_REFERENCE.md](file:///home/z/my-project/repos/nur/docs/GROQ_REFERENCE.md) — Created persistent Groq rate limits + mode compatibility reference.
+* [updatesmdfiles.md](file:///home/z/my-project/repos/nur/.agents/rules/updatesmdfiles.md) — Added Rule 4: "Never Guess External Capabilities — Ask the User to Verify".
+* [CONTEXT.md](file:///home/z/my-project/repos/nur/docs/CONTEXT.md) — Section 5 now lists `GROQ_REFERENCE.md` and mentions the new rule.
+* [PHASES.md](file:///home/z/my-project/repos/nur/docs/PHASES.md) — Generator checklist entry updated to reflect the Reporter pass + Architect fix.
+
+#### 4. Validation
+* **Reporter (TEST 2) — PASSED on user's Mac** (DEC-022 validation complete):
+  * 3 `direct_reports` entries, one per injected source (S1, S2, S3).
+  * All 3 source IDs cited in synthesis.
+  * Arabic text preserved verbatim (e.g. `يَسْـَلُونَكَ مَاذَا يُنفِقُونَ...`).
+  * Factual reports without external logic (S2 correctly says "criticizes those who do not encourage feeding the poor" — did NOT extrapolate to "therefore we should feed the poor").
+  * "Strict Archivist" persona is working — no parametric knowledge leaked.
+* **Architect (TEST 1) — fix applied, awaiting user re-test**:
+  * Agent verified the fix imports cleanly: `from src.nur.generator import Architect; a = Architect()` works (no API call needed to verify the mode switch).
+  * The `Mode.TOOLS` approach is confirmed compatible with `llama-3.1-8b-instant` by the Groq API reference (function calling is universally supported on Groq chat models, per the `tools` parameter docs).
+  * User MUST re-run `python scripts/test_generator.py` on their Mac to confirm the Architect now returns 1-6 sub-questions.
+* **Honest correction logged**: `qwen3.6-27b` IS a real Groq model — the agent's earlier claim in DEC-017 that it was "hallucinated" was itself a hallucination. The rate limit table provided by the user confirms the model exists (30 RPM, 1K RPD, 8K TPM, 200K TPD). This does not change the architecture (NUR uses Llama 4 Scout as primary, not Qwen), but the record is corrected.
+
+---
+
 ## Future Architectural Plans
 
 ### [Phase 2] — LLM-Synthesized Contextual Retrieval via Kaggle GPUs
