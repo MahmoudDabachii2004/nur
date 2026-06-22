@@ -367,6 +367,74 @@ With the ChromaDB database verified, we need to implement the first component of
 
 ---
 
+### [2026-06-21T22:05:00-04:00] — Cleaning Up RAG_PIPELINE_ARCHITECTURE.md Preamble and Unclosed Fence
+* **Decision ID:** `DEC-016`
+* **Status:** Completed
+* **Author:** Antigravity (AI Peer Engineer)
+
+#### 1. Context & Motivation
+The architecture doc had been updated via a chat-paste: a French preamble ("Oui, il y a une modification cruciale à faire...") and an orphan opening ` ```markdown ` fence with no matching close were left at the top of the file. This broke the document as a clean spec — agents reading it would treat conversational meta-text as part of the architecture.
+
+#### 2. Before vs. After
+* **Before:**
+  * File started with French chat preamble explaining the change.
+  * An opening ` ```markdown ` fence existed at line 5 with no closing fence.
+  * File did not end with a trailing newline.
+* **After:**
+  * File starts directly with the `# NUR — RAG Pipeline Architecture` H1 title.
+  * Only the legitimate JSON schema fences remain (lines 52 and 65).
+  * Trailing newline added for POSIX compliance.
+
+#### 3. Impacted Files
+* [RAG_PIPELINE_ARCHITECTURE.md](file:///home/z/my-project/repos/nur/docs/RAG_PIPELINE_ARCHITECTURE.md) — Removed preamble and orphan fence.
+
+#### 4. Validation
+* `grep '```' docs/RAG_PIPELINE_ARCHITECTURE.md` returns only the two legitimate JSON schema fences.
+* `head -5` confirms the file now starts with the H1 title.
+
+---
+
+### [2026-06-21T22:10:00-04:00] — Syncing config.py and .env.example with Llama 4 Scout Architecture
+* **Decision ID:** `DEC-017`
+* **Status:** Completed
+* **Author:** Antigravity (AI Peer Engineer)
+
+#### 1. Context & Motivation
+The architecture doc (`DEC-016` cleanup confirmed) specifies a Llama 4 Scout primary + Llama 3.3 70B reasoning fallback + Llama 3.1 8B local Ollama fallback lineup. But `src/nur/config.py` still held stale model names (`qwen/qwen3-32b`, `qwen/qwen3.6-27b` — the latter doesn't even exist as a real model). The `.env.example` had the same staleness plus a broken doc reference. Continuing into Phase 2 with these mismatches would have caused silent runtime failures when the generator module tried to call a non-existent model.
+
+#### 2. Before vs. After
+* **Before:**
+  * `llm_primary = "qwen/qwen3-32b"` (no longer in the docs).
+  * `llm_reasoning = "qwen/qwen3.6-27b"` (hallucinated model name — does not exist).
+  * `llm_local = "qwen2.5:7b"` (docs specify `llama3.1:8b`).
+  * No `llm_architect` field (the Step-1 Architect model was not configurable).
+  * `default_lang: Literal["en", "ar"]` — Arabic was incorrectly listed as a synthesis language, violating Pillar 10 (Arabic is the source of truth, always displayed; not a synthesis toggle).
+  * `.env` was loaded via relative path `"env_file='.env'"`, so `Settings()` only worked when the process CWD was the repo root.
+  * API keys required the `NUR_` prefix (`NUR_GROQ_API_KEY`), incompatible with the official Groq SDK convention which reads `GROQ_API_KEY`.
+  * `.env.example` referenced `docs/ARCHITECTURE.md` which does not exist (the real file is `docs/RAG_PIPELINE_ARCHITECTURE.md`).
+* **After:**
+  * Model lineup aligned 1:1 with `docs/RAG_PIPELINE_ARCHITECTURE.md` Section 3:
+    * `llm_architect = "llama-3.1-8b-instant"` (Step 1).
+    * `llm_primary = "meta-llama/llama-4-scout-17b-16e-instruct"` (Step 4, 30K TPM).
+    * `llm_reasoning = "llama-3.3-70b-versatile"` (extreme Ikhtilaf fallback, 12K TPM).
+    * `llm_local = "llama3.1:8b"` (offline Ollama fallback).
+  * `default_lang: Literal["en", "fr"] = "en"` — Arabic correctly excluded.
+  * `.env` loaded via absolute path `PROJECT_ROOT / ".env"`, so settings work from any CWD.
+  * API-key fields (`groq_api_key`, `openrouter_api_key`, `ollama_base_url`) use `AliasChoices` to accept BOTH `NUR_GROQ_API_KEY` and the SDK-standard `GROQ_API_KEY`. This keeps compatibility with the official Groq Python SDK.
+  * `.env.example` fully rewritten with current model names, clear pointers to source-of-truth docs, and a header explaining the `NUR_` prefix convention.
+  * `.gitignore` extended with `*.zip` rule to prevent the 500MB indexed DB download from being accidentally staged.
+
+#### 3. Impacted Files
+* [config.py](file:///home/z/my-project/repos/nur/src/nur/config.py) — Updated model lineup, absolute `.env` path, AliasChoices for SDK compatibility, default_lang type fix.
+* [.env.example](file:///home/z/my-project/repos/nur/.env.example) — Full rewrite to match current architecture.
+* [.gitignore](file:///home/z/my-project/repos/nur/.gitignore) — Added `*.zip` rule for the Lightning DB download.
+
+#### 4. Validation
+* Ran `python -c "from src.nur.config import settings"` from `/tmp` (non-repo CWD) — confirmed settings load with the correct model names and the real `GROQ_API_KEY` (length 56) is picked up.
+* `git status` confirms `.env` and `*.zip` files are NOT staged — only `.env.example`, `config.py`, and `.gitignore` are committed.
+
+---
+
 ## Future Architectural Plans
 
 ### [Phase 2] — LLM-Synthesized Contextual Retrieval via Kaggle GPUs
