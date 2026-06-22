@@ -200,8 +200,9 @@ def validate_report(result: PipelineResult) -> bool:
                 print(f"  ✅ All source IDs are valid: {[dr.source_id for dr in report.direct_reports]}")
 
         # Check 4c: synthesis cites valid source IDs
+        # Accept BOTH [SX] and (SX) — LLMs use parentheses naturally
         import re
-        cited = set(re.findall(r"\[S(\d+)\]", report.synthesis))
+        cited = set(re.findall(r"[\[\(]S(\d+)[\]\)]", report.synthesis))
         cited_ids = {f"S{n}" for n in cited}
         if not cited_ids:
             print("  ❌ Synthesis does not cite any [SX] source IDs")

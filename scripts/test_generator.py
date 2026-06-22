@@ -185,8 +185,9 @@ def test_reporter() -> bool:
             all_pass = False
 
     # Synthesis must cite at least one [SX] that exists in direct_reports
+    # Accept BOTH [SX] and (SX) — LLMs use parentheses naturally
     import re
-    cited_ids = set(re.findall(r"\[S(\d+)\]", output.synthesis))
+    cited_ids = set(re.findall(r"[\[\(]S(\d+)[\]\)]", output.synthesis))
     cited_ids = {f"S{n}" for n in cited_ids}
     if not cited_ids:
         print("  ❌ FAIL — synthesis does not cite any [SX] source IDs")

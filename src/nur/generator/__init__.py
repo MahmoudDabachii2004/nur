@@ -109,7 +109,7 @@ class SubQuestions(BaseModel):
             "database for this question, what words would I type?'"
         ),
         min_length=5,
-        max_length=15,
+        max_length=10,  # was 15 — reduced to avoid Groq tool_use_failed truncation (DEC-037)
     )
 
 
