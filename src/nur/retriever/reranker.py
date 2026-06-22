@@ -114,6 +114,7 @@ class CrossEncoderReranker:
         top_k: int = settings.top_k_rerank,
         apply_authenticity_weight: bool = True,
         normalize: bool = True,
+        mmr_lambda: float | None = None,
     ) -> list[dict[str, Any]]:
         """Score and rerank chunks by true relevance to the query.
 
@@ -122,7 +123,9 @@ class CrossEncoderReranker:
           2. (Optional) An authenticity weight based on hadith grade
           3. A final score = relevance_score × authenticity_weight
 
-        Then sorts by final score descending and returns the top-K.
+        Then sorts by final score descending. If mmr_lambda is provided,
+        applies Maximum Marginal Relevance to select a diverse top-K
+        (mix of Quran, hadith, tafsir sources).
 
         Args:
             query: The user's original question.
@@ -140,6 +143,10 @@ class CrossEncoderReranker:
             normalize: If True (default), apply sigmoid normalization to
                        get scores in [0, 1]. The 0.35 abstention threshold
                        requires normalized scores.
+            mmr_lambda: If provided (0.0 to 1.0), applies MMR diversity
+                        selection. Higher = more relevance, lower = more
+                        diversity. 0.7 = recommended. None = no MMR (pure
+                        relevance ranking).
 
         Returns:
             A list of dicts sorted by final_score descending, each with:
@@ -224,7 +231,83 @@ class CrossEncoderReranker:
         # Sort by final_score descending
         results.sort(key=lambda x: -x["final_score"])
 
+        # If MMR is enabled, reselect top-K using Maximum Marginal Relevance.
+        # MMR balances pertinence and diversity: it avoids selecting 10 hadiths
+        # that say the same thing, and instead picks a mix of Quran + hadith +
+        # tafsir — automatically, without hardcoded quotas.
+        if mmr_lambda is not None and 0.0 < mmr_lambda < 1.0:
+            results = self._apply_mmr(results, top_k, mmr_lambda)
+
         return results[:top_k]
+
+    def _apply_mmr(
+        self,
+        scored_chunks: list[dict[str, Any]],
+        top_k: int,
+        lam: float = 0.7,
+    ) -> list[dict[str, Any]]:
+        """Apply Maximum Marginal Relevance to select a diverse top-K.
+
+        MMR selects chunks iteratively. At each step, it picks the chunk that
+        maximizes:
+            MMR = λ × relevance − (1−λ) × max_similarity_to_selected
+
+        where similarity is based on source type (chunks from the same source
+        type are more "similar" and thus penalized). This ensures the top-10
+        contains a mix of Quran, hadith, and tafsir sources.
+
+        Args:
+            scored_chunks: Chunks with 'final_score' and 'source', sorted desc.
+            top_k: Number of chunks to select.
+            lam: Lambda parameter (0.0 to 1.0). Higher = more relevance,
+                 lower = more diversity. 0.7 = 70% relevance, 30% diversity.
+
+        Returns:
+            A list of top_k chunks selected by MMR.
+        """
+        if not scored_chunks:
+            return []
+
+        selected: list[dict[str, Any]] = []
+        remaining = list(scored_chunks)
+
+        # Normalize scores to [0, 1] for MMR computation
+        max_score = max((c["final_score"] for c in remaining), default=1.0)
+        if max_score == 0:
+            max_score = 1.0
+
+        while remaining and len(selected) < top_k:
+            best_chunk = None
+            best_mmr = -float("inf")
+
+            for chunk in remaining:
+                relevance = chunk["final_score"] / max_score
+
+                # Diversity penalty: how similar is this chunk to already selected?
+                # We use source type as the similarity measure: same source type =
+                # high similarity (penalized), different source type = low similarity.
+                if selected:
+                    # Count how many selected chunks share the same source type
+                    same_source_count = sum(
+                        1 for s in selected if s["source"] == chunk["source"]
+                    )
+                    diversity_penalty = same_source_count / len(selected)
+                else:
+                    diversity_penalty = 0.0
+
+                mmr = lam * relevance - (1.0 - lam) * diversity_penalty
+
+                if mmr > best_mmr:
+                    best_mmr = mmr
+                    best_chunk = chunk
+
+            if best_chunk:
+                selected.append(best_chunk)
+                remaining.remove(best_chunk)
+            else:
+                break
+
+        return selected
 
     def should_abstain(
         self,
