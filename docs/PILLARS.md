@@ -1,3 +1,4 @@
+
 # NUR — The 10 Functional Pillars
 
 > Executive summary of NUR's core principles. These pillars are non-negotiable functional requirements that guide all architectural and technical decisions.
@@ -37,10 +38,10 @@ A wrong religious answer is worse than no answer. The system implements a multi-
 Bare text chunks lack global context. We implement a two-layer enrichment strategy before embedding:
 
 1. **Structural Context** (`DEC-001`): Chunks are prefixed with metadata (Surah name, revelation type, narrator, grade, 300-char EN snippet).
-2. **LLM-Synthesized Context** (`kaggle_context_synthesizer.py`): An LLM (Qwen2.5-14B-AWQ) generates a bilingual FR/EN index card (Theme, Rule, Keywords) for each chunk. This directly solves the French sparse-match weakness identified in `DEC-004`.
+2. **LLM-Synthesized Context** (`nur_synthesizer_cloud.py`): An LLM (Qwen2.5-14B-AWQ) generates a bilingual FR/EN index card (Theme, Rule, Keywords) for each chunk. This directly solves the French sparse-match weakness identified in `DEC-004`.
 - **Impact**: Reduces retrieval failures by 67% (Anthropic, 2024) and enables true trilingual hybrid search.
 
-## Pillar 6 — Hybrid LLM Strategy (Cloud + Local)
+## Pillar 6 — Hybrid LLM Strategy (Architect + Reporter)
 
 The system uses a multi-model architecture to balance deep reasoning, API limits, and offline resilience:
 
@@ -68,7 +69,7 @@ When scholarly disagreement (Ikhtilaf) exists, the system detects it and present
 
 ## Pillar 10 — Bilingual Interface + Arabic Source of Truth
 
-Arabic: The source of truth. It is NOT a toggleable option. Arabic text (Quran, Hadith) must always be displayed alongside any answer or citation.
-Default Interface Language: English. The UI defaults to English, and the LLM's default synthesis language is English. This ensures maximum LLM reasoning accuracy and JSON stability.
-Secondary Language: French. The user can toggle the UI and the LLM's synthesis to French.
-Behavior: If the user selects English (default), the LLM explains the ruling in English, but the Arabic verse/hadith is still displayed above it.
+- **Arabic**: The source of truth. It is NOT a toggleable option. Arabic text (Quran, Hadith) must *always* be displayed alongside any answer or citation.
+- **Default Interface Language**: English. The UI defaults to English, and the LLM's default synthesis language is English. This ensures maximum LLM reasoning accuracy and JSON stability.
+- **Secondary Language**: French. The user can toggle the UI and the LLM's synthesis to French.
+- **Behavior**: If the user selects English (default), the LLM explains the ruling in English, but the Arabic verse/hadith is still displayed above it.

@@ -1,3 +1,8 @@
+Oui, il y a une modification cruciale à faire. On avait décidé ensemble (suite à l'analyse des limites Groq) de passer au modèle **Llama 4 Scout** pour le "Reporter" (Task 2) afin d'éviter de saturer la limite de 12 000 TPM du 70B, tout en gardant le 70B comme fallback pour les cas extrêmes. Il faut aussi mentionner que l'interface est en anglais par défaut.
+
+Voici le fichier complet et mis à jour. Remplace tout le contenu de ton fichier d'architecture par ceci :
+
+```markdown
 # NUR — RAG Pipeline Architecture (The "Smart Archivist" Model)
 
 > **MANDATORY READ**: This document defines the exact, definitive sequence of operations for the NUR Retrieval-Augmented Generation pipeline. 
@@ -19,7 +24,7 @@ NUR's LLM does not act as a Mufti (scholar giving rulings) or a conversational a
 ### Step 1: Dynamic Query Decomposition (The Architect)
 Complex theological questions (e.g., *“I committed adultery, repented, must I tell my wife?”*) cannot be searched directly in a vector database without losing nuance.
 
-1. The user's raw question is sent to a fast, lightweight LLM (e.g., `Llama-3.1-8b-instant` on Groq).
+1. The user's raw question is sent to a fast, lightweight LLM (`llama-3.1-8b-instant` on Groq).
 2. The LLM dynamically generates an array of sub-questions targeting the distinct jurisprudential themes of the query.
    - *Example output*: `["Rule of exposing sins in Islam", "Conditions of sincere repentance (Tawbah)", "Scholarly opinion on revealing past adultery to a spouse"]`
 3. **Rule**: The number of sub-questions is dynamic (1 to N). If the question is simple (*"How many rakats for Fajr?"*), it generates only 1 sub-question.
@@ -45,7 +50,7 @@ This is the critical anti-hallucination layer. We do not trust an LLM to evaluat
    - If the score is valid, the system keeps only the **Top 10 chunks**.
 
 ### Step 4: Structured Generation (The Reporter)
-The Top 10 chunks are sent to the primary reasoning LLM (`Llama-3.3-70b-versatile` on Groq) using the `instructor` library for constrained JSON decoding.
+The Top 10 chunks are sent to the primary reasoning LLM (`meta-llama/llama-4-scout-17b-16e-instruct` on Groq) using the `instructor` library for constrained JSON decoding. The default synthesis language is English (toggleable to French by the user).
 
 The LLM is forced to fill the following JSON Schema:
 
@@ -73,29 +78,27 @@ Before displaying the final JSON to the user, Python validates the output locall
 
 ## 3. API & Hardware Strategy (Hybrid Resilience)
 
-To respect the $0 cost constraint and Groq's free tier limits (12,000 TPM), the pipeline uses a primary/fallback architecture.
+To respect the $0 cost constraint and Groq's free tier limits, the pipeline uses a primary/fallback architecture optimized for token throughput.
 
-1. **Primary Brain (Groq - Llama 3.3 70B)**: Handles Step 1 (Decomposition) and Step 4 (Generation). It has the deep reasoning required to summarize complex Fiqh dilemmas without hallucinating. 1 complex question = ~1,000 tokens. Safe within TPM limits.
-2. **Fallback Brain (Local PC - Llama 3.1 8B via Ollama)**: If Groq returns a `429 Rate Limit Exceeded` error, the Python orchestrator catches it and silently reroutes Step 4 to the local PC (RX 5700 XT). The 8B model is less nuanced but perfectly capable of acting as a "Reporter" by filling the JSON schema with the provided context.
-3. **Local Infrastructure (MacBook M4)**: Always handles Step 2 (Retrieval), Step 3 (Reranking), and Step 5 (Verification) natively on Apple Silicon (MPS).
+1. **Primary Brain (Groq - Llama 4 Scout 17B)**: Handles Step 4 (Generation). It provides 30,000 Tokens Per Minute (TPM), allowing the system to process the ~4,000 input tokens (context) + ~800 output tokens per request reliably. It has the deep reasoning required to summarize complex Fiqh dilemmas without hallucinating.
+2. **Extreme Dilemma Fallback (Groq - Llama 3.3 70B)**: If the Scout model struggles with a highly complex theological conflict, the system can fallback to the 70B model (limited to 12,000 TPM) for maximum reasoning power.
+3. **Offline Fallback Brain (Local PC - Llama 3.1 8B via Ollama)**: If Groq returns a `429 Rate Limit Exceeded` error, the Python orchestrator catches it and silently reroutes Step 4 to the local PC (RX 5700 XT). The 8B model is less nuanced but perfectly capable of acting as a "Reporter" by filling the JSON schema with the provided context.
+4. **Local Infrastructure (MacBook M4)**: Always handles Step 2 (Retrieval), Step 3 (Reranking), and Step 5 (Verification) natively on Apple Silicon (MPS).
 
 ---
 
 ## 4. Example Use Case: The Marital Dilemma
 
-**User Query**: *"J'ai commis adultère, je me suis repenti. Dois-je le dire à ma femme ?"*
+**User Query**: *"I committed adultery, repented. Must I tell my wife?"*
 
-1. **Architect**: Generates `["Règle de l'exposition des péchés", "Conditions du Tawbah", "Avis savant sur la divulgation au conjoint"]`.
+1. **Architect**: Generates `["Rule of exposing sins in Islam", "Conditions of sincere repentance (Tawbah)", "Scholarly opinion on revealing past adultery to a spouse"]`.
 2. **Fetch**: Retrieves 30 chunks from Hadith, Quran, and Scholar indexes.
 3. **Reranker**: Identifies that Sahih Muslim 2990 (hiding sins) and an IslamQA fatwa (preserving the household) are highly relevant. Scores them > 0.85. Keeps Top 10.
-4. **Reporter (70B)**: Outputs the JSON.
-   - `conflict_detection`: "Conflit entre la divulgation du péché et la préservation du foyer."
-   - `report [S1]`: "Il est interdit d'exposer ses péchés pardonnés."
-   - `report [S3]`: "Les savants appliquent la règle de repousser le mal plus grand pour éviter la destruction du mariage."
-   - `synthesis`: *"D'après les rapports ci-dessus, l'avis savant [S3] stipule qu'il n'est pas obligatoire de divulguer ce péché... car le repentir l'a effacé [S1] et la divulgation causerait un mal plus grand au foyer."*
-5. **Verification**: Arabic text of Sahih Muslim 2990 validated.
+4. **Reporter (Llama 4 Scout)**: Outputs the JSON.
+   - `conflict_detection`: "Conflict between exposing a sin and preserving the household."
+   - `report [S1]`: "It is forbidden to expose sins that Allah has concealed."
+   - `report [S3]`: "Scholars apply the rule of repelling the greater evil to prevent the destruction of the marriage."
+   - `synthesis`: *"According to the reports above, the scholarly opinion [S3] states that it is not obligatory to disclose this sin... because sincere repentance has erased it [S1] and disclosure would cause a greater evil to the household."*
+5. **Verification**: Arabic text of Sahih Muslim 2990 validated against Uthmani script.
 
 **Result**: A theologically safe, perfectly grounded, zero-hallucination answer that respects the user's complex dilemma.
-```
-
-Avec ce fichier, l'agent IA (ou toi dans 6 mois) aura le cahier des charges exact de comment le `pipeline.py` doit fonctionner. On y est ?

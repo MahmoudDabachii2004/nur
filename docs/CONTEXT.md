@@ -1,3 +1,4 @@
+
 # NUR (نور) — Project Context & Master Overview
 
 > **نور** — "Light" in Arabic. A profound Quranic concept (Surah An-Nur, 24:35).
@@ -15,7 +16,7 @@ NUR is an Islamic Retrieval-Augmented Generation (RAG) chatbot designed to answe
 - **Absolute Reliability**: A wrong religious answer is worse than no answer. The system must abstain if it lacks confidence.
 - **Transparency**: Every claim must be traceable to a clickable source (quran.com, sunnah.com, etc.).
 - **Arabic-First**: Arabic is the source of truth. Translations are comprehension aids.
-- **Bilingual Interface**: The UI and LLM synthesis toggle between French and English, but Arabic text is *always* displayed alongside citations.
+- **Bilingual Interface**: The UI defaults to English. Users can toggle to French. Arabic text is *always* displayed alongside citations.
 - **Scholar Grounded**: Laymen (and LLMs) cannot interpret scriptures alone. The system must report scholarly opinions, never generate its own.
 
 ---
@@ -42,15 +43,15 @@ Existing Islamic AI projects suffer from critical flaws that NUR is engineered t
 ### RAG Pipeline (Local + Cloud)
 - **Retriever**: Parallel Dense (ChromaDB) and Sparse (JSON dot-product) search, fused using Reciprocal Rank Fusion (RRF).
 - **Reranker**: `bge-reranker-v2-m3` cross-encoder running locally on Apple Silicon (MPS) to refine top results.
-- **Generator**: Cloud LLM (Groq - Llama 3.3 70B / Qwen3-32B) with strict JSON Schema output. Falls back to OpenRouter, then to local Ollama for offline mode.
+- **Generator**: Cloud LLM (Groq - Llama 4 Scout / Llama 3.3 70B) with strict JSON Schema output. Falls back to OpenRouter, then to local Ollama for offline mode.
 - **Verification**: Post-generation NLI (Natural Language Inference) check and character-by-character validation of Quranic citations against the Uthmani script.
 
 ---
 
 ## 4. Current Project State
 
-- **Phase 1 (Data)**: Completed. The contextual ingestion pipeline (`kaggle_context_synthesizer.py`) has been executed on Kaggle using `Qwen2.5-7B-Instruct-AWQ`. The local database (`nur_indexed_data_contextual.zip`) is ready.
-- **Phase 2 (RAG Pipeline)**: In Progress. Building the local Python CLI to query the database and generate structured answers via Groq.
+- **Phase 1 (Data)**: ✅ Completed. The contextual ingestion pipeline (`nur_synthesizer_cloud.py`) was executed on Lightning AI using `Qwen2.5-14B-Instruct-AWQ`. The local database is verified and benchmarked successfully.
+- **Phase 2 (RAG Pipeline)**: 🚧 In Progress. Building the local Python CLI to query the database and generate structured answers via Groq.
 
 ---
 

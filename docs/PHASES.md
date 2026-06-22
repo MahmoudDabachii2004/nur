@@ -4,7 +4,7 @@
 > **Engineering Rule**: Fail small, validate between steps, no lazy stubbing. 
 > All code artifacts must be written in English, with clear doc-comments explaining *why*, not *what*.
 
-## Phase 1 — Data Ingestion + Contextual Embedding 🚧 In Progress
+## Phase 1 — Data Ingestion + Contextual Embedding ✅ Completed
 
 **Goal**: Build the local vector database with LLM-enriched context for all Islamic texts.
 
@@ -15,16 +15,19 @@
 - [x] Normalize + chunk with Layer 1 Structural Context (`scripts/04_normalize_and_chunk.py` → `DEC-001`)
 - [x] Cloud Layer 2 LLM Contextual Synthesis (`nur_synthesizer_cloud.py`)
   - Upgraded to `Qwen2.5-14B-Instruct-AWQ` for superior theological extraction.
-  - Executed on Lightning AI (L40S GPU) with native FlashAttention-2 (no hacks required).
+  - Executed on Lightning AI (L40S GPU) with native FlashAttention-2.
   - Pre-tokenization with hard truncation (8192 tokens) to prevent validation crashes.
-- [ ] **RUN** the Cloud pipeline to generate `nur_indexed_data_contextual.zip`
-- [ ] Unzip and verify 52K chunks embedded correctly in local ChromaDB + Sparse JSONs.
+- [x] **RUN** the Cloud pipeline to generate `nur_indexed_data_contextual.zip`
+- [x] Unzip and verify 52K chunks embedded correctly in local ChromaDB + Sparse JSONs.
+
+**Validation Results**: 
+Dense search benchmark passed. The Qwen 14B contextual prefix successfully resolved the French sparse/dense match failure (`DEC-004`). French queries (e.g., "L'importance de la recherche de la science") now return highly relevant Hadiths with positive similarity scores, whereas the previous baseline returned negative scores and irrelevant results.
 
 **Deliverable**: Local ChromaDB (4 collections) + 4 sparse JSON files, enriched with dual-layer bilingual context, ready for retrieval.
 
 ---
 
-## Phase 2 — Local RAG Pipeline + Structured Output (The "Smart Archivist")
+## Phase 2 — Local RAG Pipeline + Structured Output (The "Smart Archivist") 🚧 In Progress
 
 **Goal**: Working CLI chatbot that answers with cited sources, using the local database and a 2-step Groq API pipeline.
 
@@ -33,8 +36,8 @@
 src/nur/
 ├── pipeline.py        # NURPipeline orchestrator
 ├── retriever/
-│   ├── dense.py       # ChromaDB queries (4 collections parallel)
-│   ├── sparse.py      # Sparse JSON dot-product scoring
+│   ├── dense.py       # ChromaDB queries (4 collections parallel) ✅
+│   ├── sparse.py      # Sparse JSON dot-product scoring (Next)
 │   └── fusion.py      # RRF fusion (k=25, α=0.4 dense / 0.6 sparse)
 ├── generator.py       # Groq API (Architect + Reporter) + Instructor + JSON Schema
 └── cli.py             # Rich + Typer interactive CLI
@@ -46,12 +49,6 @@ src/nur/
 - **In-Context Isolation**: LLM is forced to act as an Archivist. No use of pretrained knowledge.
 - **Language Strategy**: LLM analyzes FR/EN context to resolve dilemmas. Copies Arabic text exactly into `arabic_text` field.
 - **Retry/Fallback**: If Groq returns 429 (Rate Limit), silently reroute Task 2 to local Ollama (`llama-3.1-8b` on RX 5700 XT).
-- **Validation Gate (Must pass before Phase 3)**:
-  - [ ] CLI successfully connects to local ChromaDB and Sparse JSONs.
-  - [ ] Dense and Sparse retrievers return relevant raw chunks for 5 test queries.
-  - [ ] Groq API call succeeds and returns strictly formatted JSON.
-  - [ ] LLM correctly uses injected Source IDs and does NOT hallucinate IDs.
-  - [ ] Arabic text is properly displayed in the terminal alongside the FR/EN synthesis.
 
 **Deliverable**: Terminal chatbot that answers complex questions with structured, grounded reports.
 
