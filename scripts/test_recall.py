@@ -1,20 +1,26 @@
 """
-test_recall.py — Recall audit for the NUR retriever.
+test_recall.py — Comparative recall audit for the NUR retriever.
 
-Prints the top 100 chunks retrieved by RRF for a given query, as a flat list.
-No panels, no colors, no formatting — just the raw data so it's easy to
-copy-paste back to the agent for analysis.
+Tests retrieval recall across multiple pool sizes (100, 200, 300, 400, 500)
+to find the sweet spot between recall and reranker latency.
+
+The script runs the retriever ONCE per pool size, then checks how many of
+the expected key verses/hadiths were found. It prints a comparative table
+at the end so you can see the recall progression.
+
+NOTE: This script does NOT run the reranker — it only measures the RETRIEVER
+recall (what enters the reranker pool). The reranker's job is to pick the
+best 10 from this pool; if a key verse isn't in the pool, the reranker
+cannot recover it.
 
 USAGE:
   python3 scripts/test_recall.py
   python3 scripts/test_recall.py --query "Is prayer obligatory"
-  python3 scripts/test_recall.py --query "..." --top-k 200
+  python3 scripts/test_recall.py --pool-sizes 100 200 300
 
-OUTPUT FORMAT (one chunk per line):
-  rank | chunk_id | source | rrf_score | dense_rank | sparse_rank | text_preview
-
-At the end, prints a RECALL CHECK section showing whether specific key chunks
-(known-correct answers) appeared in the results.
+OUTPUT:
+  Flat list of chunks per pool size (for manual inspection) + a comparative
+  recall table at the end.
 """
 
 from __future__ import annotations
@@ -22,6 +28,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -31,48 +38,13 @@ from src.nur.config import settings
 
 # ============================================================
 # Known-correct chunks to check recall against.
-# Add entries here as we discover recall gaps in testing.
-#
-# IMPORTANT: Quran chunk IDs use GLOBAL ayah numbering (cumulative
-# from surah 1), NOT standard surah:ayah. To avoid confusion, we
-# search by METADATA (surah_num + standard ayah_num) instead of by
-# chunk ID. The script fetches metadata for all retrieved chunks and
-# matches against these expected entries.
-#
-# For hadiths, the chunk ID format is hadith_{collection_slug}_{number}
-# which IS consistent, so we can match by chunk ID directly.
+# Verified against alquran.cloud search API (DEC-030).
 # ============================================================
-
-# Hadith collection slug mapping (matches HADITH_COLLECTION_SLUGS in sources.py)
-_HADITH_SLUGS = {
-    "bukhari": "Sahih al-Bukhari",
-    "muslim": "Sahih Muslim",
-    "abudawud": "Sunan Abi Dawud",
-    "tirmidhi": "Jami` at-Tirmidhi",
-    "nasai": "Sunan an-Nasa'i",
-    "ibnmajah": "Sunan Ibn Majah",
-}
-
 
 RECALL_CHECKS: dict[str, dict] = {
     "Is prayer obligatory": {
         "query": "Is prayer obligatory",
-        # Authoritative source: alquran.cloud API search for "establish prayer"
-        # in en.sahih edition (the SAME edition our DB uses). Retrieved
-        # 2026-06-22. This is the official list of 35 Quran verses that
-        # command the establishment of prayer.
-        #
-        # IMPORTANT: The NUR DB uses GLOBAL ayah numbering (cumulative from
-        # surah 1), not standard per-surah numbering. The mapping below was
-        # verified by matching verse text content between the API response
-        # and our DB chunks:
-        #   - Standard 2:3  → DB ayah_num=10  (offset +7, = 7 Al-Fatihah + 3)
-        #   - Standard 4:77 → DB ayah_num=570 (offset +493)
-        #   - Standard 9:5  → DB ayah_num=1240 (offset +1235)
-        # The offset increases with each surah, confirming global numbering.
         "expected_quran": [
-            # (surah_num, db_ayah_num, description)
-            # Curated to the most-cited "prayer obligation" verses:
             (2, 10, "Standard 2:3 — 'establish prayer' (foundational)"),
             (2, 50, "Standard 2:43 — 'establish prayer and give zakah'"),
             (2, 90, "Standard 2:83 — covenant of Children of Israel"),
@@ -83,7 +55,6 @@ RECALL_CHECKS: dict[str, dict] = {
             (9, 1246, "Standard 9:11 — 'repent, establish prayer, give zakah'"),
             (9, 1253, "Standard 9:18 — 'maintain mosques, establish prayer'"),
             (11, 114, "Standard 11:114 — 'establish prayer at two ends of day'"),
-            # Also 4:103 (prayer decreed) — DB ayah_num verified earlier:
             (4, 596, "Standard 4:103 — 'prayer decreed, remember Allah'"),
         ],
         "expected_hadith": [
@@ -95,166 +66,221 @@ RECALL_CHECKS: dict[str, dict] = {
 }
 
 
+def check_recall(
+    retrieved: list[dict],
+    metadata_map: dict[str, dict],
+    check: dict,
+) -> tuple[int, int, list[str]]:
+    """Check how many expected chunks were found in the retrieved pool.
+
+    Returns (found_count, total_count, detail_lines).
+    """
+    found = 0
+    total = 0
+    details = []
+
+    # Check Quran verses across all source types (quran + tafsir)
+    for surah_num, ayah_num, description in check.get("expected_quran", []):
+        total += 1
+        match_rank = None
+        match_source = None
+        for i, chunk in enumerate(retrieved, 1):
+            meta = metadata_map.get(chunk["id"], {})
+            if (
+                meta.get("surah_num") == surah_num
+                and meta.get("ayah_num") == ayah_num
+            ):
+                match_rank = i
+                match_source = chunk["source"]
+                break
+        if match_rank:
+            details.append(f"  [FOUND rank {match_rank:3d}] {match_source:10s} {surah_num}:{ayah_num} — {description}")
+            found += 1
+        else:
+            details.append(f"  [MISS       ] quran/tafsir  {surah_num}:{ayah_num} — {description}")
+
+    # Check Hadiths by chunk ID
+    details.append("")
+    for collection_slug, hadith_number, description in check.get("expected_hadith", []):
+        total += 1
+        expected_id = f"hadith_{collection_slug}_{hadith_number}"
+        match_rank = None
+        for i, chunk in enumerate(retrieved, 1):
+            if chunk["id"] == expected_id:
+                match_rank = i
+                break
+        if match_rank:
+            details.append(f"  [FOUND rank {match_rank:3d}] {expected_id:30s} — {description}")
+            found += 1
+        else:
+            details.append(f"  [MISS       ] {expected_id:30s} — {description}")
+
+    return found, total, details
+
+
+def run_single_test(
+    pipeline: NURPipeline,
+    query: str,
+    sub_questions: list[str],
+    search_keywords: list[str],
+    pool_size: int,
+    check: dict,
+    use_keywords: bool,
+) -> dict:
+    """Run a single recall test with the given pool size.
+
+    Returns a dict with: pool_size, found, total, recall_pct, elapsed_s, details.
+    """
+    all_queries = [query] + sub_questions
+    if use_keywords:
+        all_queries = all_queries + search_keywords
+
+    print(f"\n{'='*70}")
+    label = "WITH keywords" if use_keywords else "WITHOUT keywords"
+    print(f"  Pool size: {pool_size} | {label}")
+    print(f"  Queries: {len(all_queries)} ({'raw + sub-q + keywords' if use_keywords else 'raw + sub-q'})")
+    print(f"{'='*70}")
+
+    start = time.time()
+    retrieved = pipeline._retrieve(all_queries, top_k=pool_size)
+    elapsed = time.time() - start
+
+    print(f"  Retrieved {len(retrieved)} unique chunks in {elapsed:.1f}s")
+
+    # Fetch metadata for all retrieved chunks
+    import chromadb
+    client = chromadb.PersistentClient(path='./data/chroma_db')
+    by_source: dict[str, list[str]] = {}
+    for chunk in retrieved:
+        by_source.setdefault(chunk["source"], []).append(chunk["id"])
+    metadata_map: dict[str, dict] = {}
+    for source, chunk_ids in by_source.items():
+        try:
+            col = client.get_collection(f"{source}_dense")
+            res = col.get(ids=chunk_ids, include=["metadatas", "documents"])
+            for i, cid in enumerate(res["ids"]):
+                meta = res["metadatas"][i] if i < len(res["metadatas"]) else {}
+                doc = res["documents"][i] if i < len(res["documents"]) else ""
+                metadata_map[cid] = {
+                    "preview": doc[:80].replace("\n", " "),
+                    "surah_num": meta.get("surah_num"),
+                    "ayah_num": meta.get("ayah_num"),
+                    "hadith_number": meta.get("hadith_number"),
+                    "collection": meta.get("collection"),
+                }
+        except Exception as e:
+            print(f"  WARNING: metadata fetch failed for {source}: {e}", file=sys.stderr)
+
+    # Check recall
+    found, total, details = check_recall(retrieved, metadata_map, check)
+    recall_pct = found / total * 100 if total > 0 else 0
+
+    print(f"\n  RECALL CHECK:")
+    for line in details:
+        print(f"  {line}")
+    print(f"\n  Recall: {found}/{total} = {recall_pct:.0f}%")
+
+    return {
+        "pool_size": pool_size,
+        "use_keywords": use_keywords,
+        "found": found,
+        "total": total,
+        "recall_pct": recall_pct,
+        "elapsed_s": elapsed,
+        "num_chunks": len(retrieved),
+        "details": details,
+    }
+
+
 def main() -> None:
-    """Run the recall audit and print results as a flat list."""
-    parser = argparse.ArgumentParser(description="NUR retriever recall audit.")
+    """Run the comparative recall audit."""
+    parser = argparse.ArgumentParser(description="NUR retriever recall audit (comparative).")
     parser.add_argument(
         "--query", "-q",
         default="Is prayer obligatory",
         help="The query to test (default: 'Is prayer obligatory').",
     )
     parser.add_argument(
-        "--top-k", "-k",
+        "--pool-sizes", "-k",
         type=int,
-        default=100,
-        help="Number of chunks to retrieve (default: 100).",
+        nargs="+",
+        default=[100, 200, 300, 400, 500],
+        help="Pool sizes to test (default: 100 200 300 400 500).",
+    )
+    parser.add_argument(
+        "--no-keywords",
+        action="store_true",
+        help="Also test WITHOUT keywords (to measure keyword impact).",
     )
     args = parser.parse_args()
 
-    # Pre-flight check
     if not settings.groq_api_key:
-        print("ERROR: GROQ_API_KEY not set (needed for the Architect to decompose).")
+        print("ERROR: GROQ_API_KEY not set.")
         sys.exit(1)
 
-    print(f"# NUR Recall Audit")
-    print(f"# Query: {args.query}")
-    print(f"# Top-K: {args.top_k}")
-    print(f"# Models: Architect={settings.llm_architect}, BGE-M3 on auto-detected device")
-    print()
+    check = RECALL_CHECKS.get(args.query)
+    if not check:
+        print(f"ERROR: No recall check defined for '{args.query}'.")
+        print(f"Available: {list(RECALL_CHECKS.keys())}")
+        sys.exit(1)
 
-    # Initialize pipeline (loads BGE-M3 on first query)
-    print("# Initializing pipeline...", flush=True)
+    print(f"# NUR Recall Audit (Comparative)")
+    print(f"# Query: {args.query}")
+    print(f"# Pool sizes: {args.pool_sizes}")
+    print(f"# Test keywords impact: {not args.no_keywords is False or True}")  # always test both if --no-keywords
+
+    # Initialize pipeline ONCE (loads BGE-M3 once, reuse for all tests)
+    print(f"\n# Initializing pipeline...", flush=True)
     pipeline = NURPipeline()
     print(f"# Pipeline ready. BGE-M3 device: {pipeline._device}")
-    print()
 
-    # Step 1: Architect decomposes the query
-    print("# Step 1: Architect decomposing query...", flush=True)
-    sub_questions = pipeline.generator.decompose_query(args.query)
-    all_queries = [args.query] + sub_questions
+    # Step 1: Architect (run ONCE, reuse for all pool sizes)
+    print(f"\n# Step 1: Architect decomposing query + extracting keywords...", flush=True)
+    sub_questions, search_keywords = pipeline.generator.decompose_query(args.query)
     print(f"# Sub-questions ({len(sub_questions)}):")
     for i, sq in enumerate(sub_questions, 1):
         print(f"#   {i}. {sq}")
-    print()
+    print(f"# Search keywords ({len(search_keywords)}):")
+    print(f"#   {', '.join(search_keywords)}")
 
-    # Step 2: Retrieve top-K chunks per (query, source) — NO truncation to 30
-    # We patch the _retrieve call to use top_k=args.top_k instead of the default 30.
-    print(f"# Step 2: Retrieving top-{args.top_k} per (query, source)...", flush=True)
-    retrieved = pipeline._retrieve(all_queries, top_k=args.top_k)
-    print(f"# Total unique chunks retrieved: {len(retrieved)}")
-    print()
+    # Run tests
+    results = []
+    configs = [(True, "WITH keywords")]
+    if args.no_keywords:
+        configs.append((False, "WITHOUT keywords"))
 
-    # Print the flat list — one chunk per line, easy to copy-paste
-    print(f"# ===== TOP {len(retrieved)} CHUNKS (ranked by RRF score) =====")
-    print(f"# rank | chunk_id | source | rrf_score | dense_rank | sparse_rank | text_preview")
-    print()
+    for pool_size in args.pool_sizes:
+        for use_kw, label in configs:
+            result = run_single_test(
+                pipeline=pipeline,
+                query=args.query,
+                sub_questions=sub_questions,
+                search_keywords=search_keywords,
+                pool_size=pool_size,
+                check=check,
+                use_keywords=use_kw,
+            )
+            results.append(result)
 
-    # Build a lookup of chunk metadata for previews AND recall checking (batch fetch)
-    import chromadb
-    client = chromadb.PersistentClient(path=str(settings.chroma_path if hasattr(settings, 'chroma_path') else './data/chroma_db'))
-    
-    # Group chunk IDs by source for batch fetching
-    by_source: dict[str, list[str]] = {}
-    for chunk in retrieved:
-        by_source.setdefault(chunk["source"], []).append(chunk["id"])
-    
-    # Fetch metadata + documents for all retrieved chunks
-    # metadata_map stores: chunk_id → {preview: str, surah_num: int, ayah_num: int, hadith_number: int, ...}
-    metadata_map: dict[str, dict] = {}
-    for source, chunk_ids in by_source.items():
-        try:
-            col = client.get_collection(f"{source}_dense")
-            res = col.get(ids=chunk_ids, include=["documents", "metadatas"])
-            for i, cid in enumerate(res["ids"]):
-                doc = res["documents"][i] if i < len(res["documents"]) else ""
-                meta = res["metadatas"][i] if i < len(res["metadatas"]) else {}
-                preview = doc[:80].replace("\n", " ").replace("\r", " ")
-                metadata_map[cid] = {
-                    "preview": preview,
-                    "surah_num": meta.get("surah_num"),
-                    "ayah_num": meta.get("ayah_num"),
-                    "hadith_number": meta.get("hadith_number"),
-                    "collection": meta.get("collection"),
-                    "collection_url_slug": meta.get("collection_url_slug"),
-                }
-        except Exception as e:
-            print(f"# WARNING: could not fetch metadata for {source}: {e}", file=sys.stderr)
+    # Print comparative table
+    print(f"\n\n{'='*70}")
+    print(f"  COMPARATIVE RECALL TABLE")
+    print(f"{'='*70}")
+    print(f"  {'Config':<25} {'Pool':<6} {'Found':<7} {'Total':<7} {'Recall':<8} {'Time':<8} {'Chunks'}")
+    print(f"  {'-'*70}")
+    for r in results:
+        label = "WITH keywords" if r["use_keywords"] else "WITHOUT keywords"
+        print(f"  {label:<25} {r['pool_size']:<6} {r['found']:<7} {r['total']:<7} "
+              f"{r['recall_pct']:>5.0f}%   {r['elapsed_s']:>5.1f}s  {r['num_chunks']}")
+    print(f"{'='*70}")
 
-    for rank, chunk in enumerate(retrieved, 1):
-        cid = chunk["id"]
-        source = chunk["source"]
-        rrf = chunk["rrf_score"]
-        d_rank = str(chunk["dense_rank"]) if chunk["dense_rank"] else "-"
-        s_rank = str(chunk["sparse_rank"]) if chunk["sparse_rank"] else "-"
-        preview = metadata_map.get(cid, {}).get("preview", "(no preview)")
-        print(f"{rank:3d} | {cid:30s} | {source:10s} | {rrf:.6f} | {d_rank:>9s} | {s_rank:>10s} | {preview}")
+    # Find best config
+    best = max(results, key=lambda r: r["recall_pct"])
+    print(f"\n  Best: {'WITH keywords' if best['use_keywords'] else 'WITHOUT keywords'} "
+          f"pool={best['pool_size']} → {best['recall_pct']:.0f}% recall "
+          f"({best['found']}/{best['total']}) in {best['elapsed_s']:.1f}s")
 
-    # Step 3: Recall check — did the key chunks appear?
-    # Match by metadata (surah_num + ayah_num for Quran, collection_slug + hadith_number for hadith)
-    # NOT by chunk ID, because Quran chunk IDs use global numbering which is error-prone.
-    print()
-    print("# ===== RECALL CHECK =====")
-    check = RECALL_CHECKS.get(args.query)
-    if check:
-        found = 0
-        total = 0
-
-        # Check Quran verses by surah_num + ayah_num across quran + tafsir collections.
-        # A verse is considered "found" if it appears as a direct Quran chunk OR
-        # as a Tafsir chunk (AR or EN) for that same surah:ayah — both contain
-        # the verse's content and are valid retrieval hits.
-        print(f"# Expected Quran verses for '{args.query}':")
-        for surah_num, ayah_num, description in check.get("expected_quran", []):
-            total += 1
-            # Search retrieved chunks across all source types for matching surah+ayah
-            match_rank = None
-            match_source = None
-            for i, chunk in enumerate(retrieved, 1):
-                meta = metadata_map.get(chunk["id"], {})
-                if (
-                    meta.get("surah_num") == surah_num
-                    and meta.get("ayah_num") == ayah_num
-                ):
-                    match_rank = i
-                    match_source = chunk["source"]
-                    break
-            if match_rank:
-                print(f"#   [FOUND rank {match_rank:3d}] {match_source:10s} {surah_num}:{ayah_num} — {description}")
-                found += 1
-            else:
-                print(f"#   [MISS       ] quran/tafsir  {surah_num}:{ayah_num} — {description}")
-
-        # Check Hadiths by collection_slug + hadith_number (chunk ID format is consistent)
-        print()
-        print(f"# Expected Hadiths for '{args.query}':")
-        for collection_slug, hadith_number, description in check.get("expected_hadith", []):
-            total += 1
-            expected_id = f"hadith_{collection_slug}_{hadith_number}"
-            match_rank = None
-            for i, chunk in enumerate(retrieved, 1):
-                if chunk["id"] == expected_id:
-                    match_rank = i
-                    break
-            if match_rank:
-                print(f"#   [FOUND rank {match_rank:3d}] {expected_id:30s} — {description}")
-                found += 1
-            else:
-                print(f"#   [MISS       ] {expected_id:30s} — {description}")
-
-        print()
-        pct = found / total * 100 if total > 0 else 0
-        print(f"# Recall: {found}/{total} = {pct:.0f}%")
-        if found < total:
-            print("# ⚠️  Some key chunks are missing — see MISS entries above.")
-            print("#     Consider: improving Architect prompt, increasing --top-k, or adding query expansion.")
-        else:
-            print("# ✅ All key chunks found — recall is good for this query.")
-    else:
-        print(f"# No recall check defined for '{args.query}'.")
-        print("# Add an entry to RECALL_CHECKS in this script to track expected chunks.")
-
-    print()
-    print("# Done.")
+    print(f"\n# Done.")
 
 
 if __name__ == "__main__":

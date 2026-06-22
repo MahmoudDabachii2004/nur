@@ -65,9 +65,19 @@ from src.nur.config import settings
 class SubQuestions(BaseModel):
     """Output schema for the Architect (Step 1).
 
-    The LLM decomposes a complex user query into 1..N sub-questions, each
-    targeting a distinct jurisprudential theme. The number is dynamic —
-    simple questions get 1 sub-question, complex dilemmas get 3-4.
+    The LLM does TWO things in one call:
+    1. Decomposes the user query into 1..N sub-questions (jurisprudential themes)
+    2. Extracts search keywords for retrieval (the user's idea — DEC-032)
+
+    The keywords are critical for recall. The retriever matches by semantic
+    similarity, so "Is prayer obligatory" misses Quran verses that say
+    "establish prayer" (different surface form). By extracting keywords like
+    "establish prayer", "salah", "صلاة", "fard", the retriever gets multiple
+    search angles into the database.
+
+    This is LLM-driven query expansion — NOT hardcoded synonyms. The LLM
+    generates keywords based on its knowledge of Islamic terminology, so it
+    works for any topic (prayer, charity, fasting, divorce, inheritance...).
     """
 
     sub_questions: list[str] = Field(
@@ -80,6 +90,26 @@ class SubQuestions(BaseModel):
         ),
         min_length=1,
         max_length=6,
+    )
+
+    search_keywords: list[str] = Field(
+        ...,
+        description=(
+            "An array of 5 to 15 search keywords extracted from the user's "
+            "query. These are used as additional search queries to improve "
+            "retrieval recall. Include:\n"
+            "  - English terms (e.g. 'prayer', 'obligation', 'establish prayer')\n"
+            "  - Arabic terms in Arabic script (e.g. 'صلاة', 'فرض', 'إقام الصلاة')\n"
+            "  - Transliterated Arabic (e.g. 'salah', 'salat', 'fard', 'wajib')\n"
+            "  - Quranic phrasing (e.g. 'establish prayer', 'give zakah')\n"
+            "  - Related concepts (e.g. 'five pillars', 'worship', 'duty')\n"
+            "These keywords are NOT synonyms you invent — they are the actual "
+            "terms a scholar would use to search for this topic in an Islamic "
+            "database. Think: 'if I were searching a 50,000-chunk Quran+Hadith "
+            "database for this question, what words would I type?'"
+        ),
+        min_length=5,
+        max_length=15,
     )
 
 
@@ -234,14 +264,25 @@ class Architect:
         self.client = instructor.from_groq(client, mode=instructor.Mode.TOOLS)
         self.model = settings.llm_architect
 
-    def decompose(self, user_query: str) -> list[str]:
-        """Decompose a user query into 1..N sub-questions.
+    def decompose(self, user_query: str) -> tuple[list[str], list[str]]:
+        """Decompose a user query into sub-questions AND extract search keywords.
+
+        This is a single LLM call that does two things:
+        1. Generates 1..N sub-questions (jurisprudential themes)
+        2. Extracts 5..15 search keywords for retrieval (DEC-032)
+
+        The keywords are the user's idea — LLM-driven query expansion. Instead
+        of hardcoding "prayer → establish prayer", the LLM extracts the relevant
+        Islamic terminology from the query itself. This works for any topic
+        without manual synonym tables.
 
         Args:
             user_query: The raw user question, in any language (EN/FR/AR).
 
         Returns:
-            A list of 1..6 sub-questions in the same language as the input.
+            A tuple of (sub_questions, search_keywords):
+              - sub_questions: list of 1..6 sub-questions in the query's language
+              - search_keywords: list of 5..15 search terms (EN + AR + transliterated)
         """
         response = self.client.chat.completions.create(
             model=self.model,
@@ -254,7 +295,7 @@ class Architect:
             max_tokens=512,
         )
         # instructor returns the validated Pydantic model directly
-        return response.sub_questions
+        return response.sub_questions, response.search_keywords
 
 
 # ============================================================
@@ -397,8 +438,12 @@ class Generator:
         self.architect = Architect(client=client)
         self.reporter = Reporter(client=client)
 
-    def decompose_query(self, user_query: str) -> list[str]:
-        """Step 1: Decompose the user query into sub-questions."""
+    def decompose_query(self, user_query: str) -> tuple[list[str], list[str]]:
+        """Step 1: Decompose the user query into sub-questions AND extract keywords.
+
+        Returns:
+            A tuple of (sub_questions, search_keywords).
+        """
         return self.architect.decompose(user_query)
 
     def generate_report(

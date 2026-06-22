@@ -83,7 +83,7 @@ def test_architect() -> bool:
 
     try:
         architect = Architect()
-        sub_questions = architect.decompose(query)
+        sub_questions, search_keywords = architect.decompose(query)
     except Exception as e:
         print(f"  ❌ FAIL — API call failed: {type(e).__name__}: {e}")
         print(f"     Common causes:")
@@ -95,6 +95,8 @@ def test_architect() -> bool:
     print(f"  Returned {len(sub_questions)} sub-questions:")
     for i, sq in enumerate(sub_questions, 1):
         print(f"    {i}. {sq}")
+    print(f"\n  Extracted {len(search_keywords)} search keywords:")
+    print(f"    {', '.join(search_keywords)}")
 
     # Validation checks
     if len(sub_questions) < 1:
@@ -102,6 +104,9 @@ def test_architect() -> bool:
         return False
     if len(sub_questions) > 6:
         print(f"  ❌ FAIL — returned {len(sub_questions)} sub-questions (max is 6)")
+        return False
+    if len(search_keywords) < 5:
+        print(f"  ❌ FAIL — must return at least 5 search keywords, got {len(search_keywords)}")
         return False
 
     print(f"\n  ✅ PASS — {len(sub_questions)} sub-questions returned (within 1-6 range)")

@@ -297,6 +297,36 @@ def display_error(result: PipelineResult) -> None:
     ))
 
 
+def display_abstention(result: PipelineResult) -> None:
+    """Display the abstention message if the pipeline abstained (Pillar 4).
+
+    Per docs/RAG_PIPELINE_ARCHITECTURE.md Step 3:
+      "If the Top 1 chunk score < 0.35, abort generation. Return 'I do not
+       have sufficient reliable sources to answer this question.'"
+
+    This is the mathematical abstention gate — the cross-encoder is not
+    confident that any retrieved chunk actually answers the question.
+    """
+    if not result.abstained:
+        return
+
+    console.print()
+    console.print(Panel(
+        Text(
+            "I do not have sufficient reliable sources in my database to "
+            "answer this question.\n\n"
+            "This is intentional (Pillar 4 — Absolute Reliability). A wrong "
+            "religious answer is worse than no answer. Please consult a "
+            "qualified scholar.",
+            style="bold yellow",
+        ),
+        title="[bold yellow]🚫 Insufficient Sources",
+        title_align="left",
+        border_style="yellow",
+        padding=(1, 2),
+    ))
+
+
 def display_result(
     result: PipelineResult,
     show_arabic: bool = True,
@@ -305,6 +335,7 @@ def display_result(
     """Display the complete pipeline result in the correct order.
 
     The order is deliberate and pillar-compliant:
+      0. Abstention (Pillar 4 — if abstained, show message and stop)
       1. Answer warning (Pillar 4 — must be seen first)
       2. Conflict detection (Pillar 9 — Ikhtilaf awareness)
       3. Synthesis (the main answer)
@@ -316,6 +347,14 @@ def display_result(
     # Header
     console.print()
     console.print(Rule(f"[bold green]نور (NUR) — Light", style="green"))
+
+    # 0. Abstention (if abstained, show message and return early)
+    if result.abstained:
+        display_abstention(result)
+        if result.error:
+            display_error(result)
+        console.print()
+        return
 
     # 1. Answer warning (if any)
     display_answer_warning(result)

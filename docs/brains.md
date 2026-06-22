@@ -1022,6 +1022,86 @@ The user approved two improvements (A+B):
 
 ---
 
+### [2026-06-22T05:30:00-04:00] — LLM-Driven Keyword Extraction for Query Expansion (DEC-032)
+* **Decision ID:** `DEC-032`
+* **Status:** Completed
+* **Author:** Antigravity (AI Peer Engineer) + User (idea)
+
+#### 1. Context & Motivation
+The user rejected Option C (hardcoded synonym tables) as intellectually dishonest — "prayer → establish prayer" only works for prayer, not for charity/fasting/divorce. The user proposed: "an AI that extracts all keywords from the phrase as if it wanted to search a huge database before you feed the reranker."
+
+This is LLM-driven query expansion. The Architect extracts 5-15 search keywords (English + Arabic script + transliterated) from the user's query. These keywords become additional retrieval queries. The LLM knows Islamic terminology from its training, so it works for any topic without manual synonym tables.
+
+#### 2. Before vs. After
+* **Before:**
+  * Architect returned only sub-questions (1-6 per query).
+  * Retrieval used: raw query + sub-questions. Total: ~5 queries.
+  * "Is prayer obligatory" → sub-questions all used "obligatory", missing "establish prayer".
+* **After:**
+  * `SubQuestions` Pydantic schema gained a `search_keywords` field (5-15 keywords).
+  * Architect now returns `(sub_questions, search_keywords)` tuple in a single LLM call.
+  * Retrieval uses: raw query + sub-questions + keywords. Total: ~15-20 queries.
+  * Keywords include English ("establish prayer", "five pillars"), Arabic script ("صلاة", "فرض"), and transliterated ("salah", "fard", "wajib").
+  * The prompt instructs: "Think: if I were searching a 50,000-chunk Quran+Hadith database for this question, what words would I type?"
+
+#### 3. Impacted Files
+* [generator/__init__.py](file:///home/z/my-project/repos/nur/src/nur/generator/__init__.py) — SubQuestions schema + Architect.decompose() return signature.
+* [pipeline.py](file:///home/z/my-project/repos/nur/src/nur/pipeline.py) — query() uses keywords as additional retrieval queries.
+* [test_recall.py](file:///home/z/my-project/repos/nur/scripts/test_recall.py) — comparative test with/without keywords.
+
+#### 4. Validation
+* Code imports cleanly. SubQuestions has both fields.
+* Awaiting user test to measure if keywords improve recall (or brouillent the reranker as the user feared).
+* The test script now runs BOTH configs (with/without keywords) so we can compare empirically.
+
+---
+
+### [2026-06-22T06:00:00-04:00] — Cross-Encoder Reranker + Abstention Gate Integration (DEC-033)
+* **Decision ID:** `DEC-033`
+* **Status:** Completed (code complete; live test deferred to user)
+* **Author:** Antigravity (AI Peer Engineer)
+
+#### 1. Context & Motivation
+Phase 3 requires the reranker (Step 3) and abstention gate (Pillar 4). The reranker was verified working in DEC-029 (distinguishes "prayer = 2nd pillar obligatory" at 0.99 from "Friday prayer abandonment" at 0.005). This commit integrates it into the pipeline with authenticity weighting and abstention.
+
+#### 2. Before vs. After
+* **Before:**
+  * Pipeline skipped Step 3 (placeholder: "Phase 3 reranker not yet implemented").
+  * Top-10 chunks were selected by RRF score only — no cross-encoder precision.
+  * No abstention: the pipeline always generated an answer, even from weak sources.
+* **After:**
+  * Created `src/nur/retriever/reranker.py` — `CrossEncoderReranker` class:
+    * Lazy model loading (568M params, ~1.2GB, loads on first `rerank()` call).
+    * `rerank(query, chunks, source_refs, top_k)` — scores all chunks with sigmoid normalization, applies authenticity weighting (Sahih ×1.3, Hasan ×1.1, Da'if ×0.5, Mawdu ×0), returns top-K by final_score.
+    * `should_abstain(reranked_results, threshold=0.35)` — returns True if top-1 reranker score < 0.35.
+  * Updated `src/nur/pipeline.py`:
+    * `PipelineResult` gained: `search_keywords`, `reranked_chunks`, `abstained` fields.
+    * `query()` now does: Step 1 (Architect+keywords) → Step 2 (retrieve pool) → Step 3 (rerank all + abstention) → Step 4 (Reporter).
+    * New `_fetch_chunk_documents()` method: batch-fetches chunk text from ChromaDB for the reranker.
+    * If abstained: returns early with `abstained=True`, `report=None`.
+  * Updated `src/nur/cli.py`: `display_abstention()` shows a yellow panel: "I do not have sufficient reliable sources to answer this question."
+  * Updated `scripts/test_pipeline.py`: handles abstention in validation + display.
+  * Rewrote `scripts/test_recall.py`: comparative test across pool sizes 100-500, with and without keywords, to find the sweet spot.
+
+#### 3. Impacted Files
+* [reranker.py](file:///home/z/my-project/repos/nur/src/nur/retriever/reranker.py) — Created CrossEncoderReranker class.
+* [pipeline.py](file:///home/z/my-project/repos/nur/src/nur/pipeline.py) — Integrated reranker + abstention + keywords.
+* [cli.py](file:///home/z/my-project/repos/nur/src/nur/cli.py) — Added abstention display.
+* [test_pipeline.py](file:///home/z/my-project/repos/nur/scripts/test_pipeline.py) — Handles abstention.
+* [test_recall.py](file:///home/z/my-project/repos/nur/scripts/test_recall.py) — Comparative pool-size test.
+
+#### 4. Validation
+* All modules import cleanly. PipelineResult has 10 fields (added search_keywords, reranked_chunks, abstained).
+* CrossEncoderReranker has `rerank()` and `should_abstain()` methods.
+* CLI has `display_abstention()` function.
+* **Live test DEFERRED TO USER per Rule 3**: needs BGE-M3 + ChromaDB + Groq + reranker model. User must run:
+  1. `python3 scripts/test_recall.py` — comparative recall (finds sweet spot pool size + measures keyword impact)
+  2. `python3 scripts/test_pipeline.py` — full pipeline with reranker + abstention
+  3. `python -m nur "Is prayer obligatory"` — CLI with reranker
+* Expected: reranker should repêche 2:110 (was rank 189 in RRF → should be top-10 after rerank). Abstention should trigger for genuinely-unanswerable questions.
+
+---
+
 ## Future Architectural Plans
 
 ### [Phase 2] — LLM-Synthesized Contextual Retrieval via Kaggle GPUs

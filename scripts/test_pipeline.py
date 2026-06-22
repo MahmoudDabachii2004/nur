@@ -93,11 +93,17 @@ def print_top_chunks(result: PipelineResult) -> None:
 def print_report(result: PipelineResult) -> None:
     """Print the Reporter's structured output (Step 4 output) + grade warnings."""
     print_separator("STEP 4 — REPORTER: Structured Generation")
-    print(f"  Model: {settings.llm_primary}")
+
+    if result.abstained:
+        print("  🚫 PIPELINE ABSTAINED — no report generated.")
+        print("     Top reranker score < 0.35 → insufficient reliable sources.")
+        return
 
     if not result.report:
-        print("  ❌ No report generated.")
+        print("  ❌ No report generated (pipeline error).")
         return
+
+    print(f"  Model: {settings.llm_primary}")
 
     # Print answer-level warning FIRST (if any) — this is the most important
     # information for the user to see before reading the answer.
@@ -138,6 +144,13 @@ def validate_report(result: PipelineResult) -> bool:
     if result.error:
         print(f"  ❌ Pipeline error: {result.error}")
         return False
+
+    # Check 0: Abstention (Pillar 4)
+    if result.abstained:
+        print("  🚫 Pipeline ABSTAINED — top reranker score < 0.35 threshold.")
+        print("     This is correct behavior (Pillar 4: when in doubt, abstain).")
+        print("     The system did not find sufficient reliable sources.")
+        return True  # abstention is a valid outcome, not a failure
 
     # Check 1: Architect returned sub-questions
     if not result.sub_questions:
