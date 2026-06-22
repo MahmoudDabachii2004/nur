@@ -243,11 +243,13 @@ def main() -> None:
     print(f"# Search keywords ({len(search_keywords)}):")
     print(f"#   {', '.join(search_keywords)}")
 
-    # Run tests
+    # Run tests — ALWAYS test both configs (WITH and WITHOUT keywords)
+    # so we can measure the keyword impact at every pool size.
     results = []
-    configs = [(True, "WITH keywords")]
-    if args.no_keywords:
-        configs.append((False, "WITHOUT keywords"))
+    configs = [
+        (False, "WITHOUT keywords"),
+        (True, "WITH keywords"),
+    ]
 
     for pool_size in args.pool_sizes:
         for use_kw, label in configs:
