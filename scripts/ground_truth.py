@@ -232,6 +232,88 @@ GROUND_TRUTH: dict[str, dict] = {
 }
 
 
+# ============================================================
+# VERIFIED DB chunk IDs — obtained by running verify_ground_truth.py
+# These are the ACTUAL chunk IDs in our DB, verified by text content match.
+# No offset calculation needed — these are ground truth.
+#
+# NOTE: 3 entries were removed due to text-matching errors in the verification
+# script (2:110 matched 2:43, 2:215 matched 2:219, 3:130 matched 3:118).
+# These can be re-added after manual verification on the user's Mac.
+# 4:161 was not found at all — may need different search terms.
+# ============================================================
+
+VERIFIED_DB_IDS: dict[str, dict] = {
+    "What does the Quran say about charity and zakat?": {
+        "quran_chunk_ids": [
+            ("quran_9_1295", "9:60 — Zakah expenditures for the poor, needy, collectors..."),
+            ("quran_2_50", "2:43 — And establish prayer and give zakah and bow..."),
+            ("quran_2_284", "2:277 — Indeed, those who believe and establish prayer and give zakah..."),
+            ("quran_70_5400", "70:25 — For the petitioner and the deprived"),
+            ("quran_57_5093", "57:18 — Indeed, the men who practice charity..."),
+            ("quran_19_2281", "19:31 — He has enjoined upon me prayer and zakah..."),
+            ("quran_2_283", "2:276 — Allah destroys interest and gives increase for charities"),
+        ],
+        "hadith_chunk_ids": [
+            ("hadith_bukhari_1395", "Prophet sent Mu'adh to Yemen — teach about zakat"),
+            ("hadith_nasai_2538", "Every Muslim must give charity"),
+            ("hadith_bukhari_1427", "Best charity from self-sufficiency"),
+        ],
+    },
+    "Is prayer obligatory?": {
+        "quran_chunk_ids": [
+            ("quran_2_10", "2:3 — Who believe in the unseen, establish prayer..."),
+            ("quran_2_50", "2:43 — And establish prayer and give zakah..."),
+            ("quran_2_284", "2:277 — Those who believe and establish prayer..."),
+            ("quran_4_596", "4:103 — When you have completed the prayer, remember Allah..."),
+            ("quran_8_1163", "8:3 — The ones who establish prayer..."),
+            ("quran_70_5409", "70:34 — Those who carefully maintain their prayer"),
+            ("quran_19_2309", "19:59 — Successors who neglected prayer and pursued desires"),
+        ],
+        "hadith_chunk_ids": [
+            ("hadith_bukhari_8", "Islam is based on five principles"),
+            ("hadith_muslim_8", "Islam is based on five pillars"),
+        ],
+    },
+    "How to perform wudu (ablution)?": {
+        "quran_chunk_ids": [
+            ("quran_5_675", "5:6 — Wash your faces and forearms... wipe your heads... wash your feet"),
+        ],
+        "hadith_chunk_ids": [
+            ("hadith_tirmidhi_48", "I saw Ali performing Wudu — detailed steps"),
+            ("hadith_bukhari_159", "Show me how the Messenger of Allah performed ablution"),
+            ("hadith_bukhari_164", "Uthman asking for water to perform ablution"),
+            ("hadith_nasai_111", "Woe to the heels from the Hellfire"),
+        ],
+    },
+    "What does the Quran say about patience in trials?": {
+        "quran_chunk_ids": [
+            ("quran_3_413", "3:120 — If you are patient and fear Allah, their plot will not harm you"),
+            ("quran_12_1679", "12:83 — Patience is most fitting. Perhaps Allah will bring them"),
+            ("quran_16_2028", "16:127 — Be patient, your patience is not but through Allah"),
+            ("quran_2_221", "2:214 — Do you think you'll enter Paradise without trial?"),
+            ("quran_7_1082", "7:128 — Seek help through Allah and be patient"),
+            ("quran_11_1588", "11:115 — Be patient, Allah does not allow the reward to be lost"),
+        ],
+        "hadith_chunk_ids": [
+            # Note: bukhari_5648 text didn't match expected — may need re-verification
+            ("hadith_bukhari_1283", "Patience is at the first stroke of a calamity"),
+        ],
+    },
+    "What is the ruling on usury (Riba)?": {
+        "quran_chunk_ids": [
+            ("quran_2_282", "2:275 — Those who consume interest cannot stand"),
+            ("quran_2_283", "2:276 — Allah destroys interest and gives increase for charities"),
+            ("quran_2_285", "2:278 — Fear Allah and give up what remains of interest"),
+        ],
+        "hadith_chunk_ids": [
+            ("hadith_muslim_3881", "The Messenger of Allah cursed the one who consumes Riba"),
+            ("hadith_ibnmajah_2274", "A dirham of Riba is worse than 36 acts of zina"),
+        ],
+    },
+}
+
+
 def get_ground_truth_for_query(query: str) -> dict | None:
     """Get the ground truth for a specific query.
 
@@ -248,7 +330,8 @@ def get_ground_truth_for_query(query: str) -> dict | None:
 def get_expected_global_ayahs(query: str) -> list[tuple[int, int, str]]:
     """Get expected Quran verses as (surah, global_ayah_num, description) tuples.
 
-    Converts standard surah:ayah to the global numbering used in our DB.
+    Uses VERIFIED chunk IDs from verify_ground_truth.py — no offset calculation.
+    The verified IDs were obtained by searching the DB by text content.
 
     Args:
         query: The user question string.
@@ -256,19 +339,24 @@ def get_expected_global_ayahs(query: str) -> list[tuple[int, int, str]]:
     Returns:
         List of (surah_num, global_ayah_num, description) tuples.
     """
-    gt = GROUND_TRUTH.get(query)
-    if not gt:
-        return []
+    verified = VERIFIED_DB_IDS.get(query, {})
+    quran_ids = verified.get("quran_chunk_ids", [])
 
     result = []
-    for surah, ayah, desc in gt.get("expected_quran_standard", []):
-        global_ayah = standard_to_global(surah, ayah)
-        result.append((surah, global_ayah, desc))
+    for chunk_id, desc in quran_ids:
+        # Parse surah and global ayah from chunk ID: "quran_9_1295" → (9, 1295)
+        parts = chunk_id.split("_")
+        if len(parts) == 3 and parts[0] == "quran":
+            surah = int(parts[1])
+            global_ayah = int(parts[2])
+            result.append((surah, global_ayah, desc))
     return result
 
 
 def get_expected_hadith_ids(query: str) -> list[tuple[str, int, str]]:
     """Get expected hadiths as (collection_slug, hadith_number, description) tuples.
+
+    Uses VERIFIED chunk IDs from verify_ground_truth.py.
 
     Args:
         query: The user question string.
@@ -276,8 +364,15 @@ def get_expected_hadith_ids(query: str) -> list[tuple[str, int, str]]:
     Returns:
         List of (collection_slug, hadith_number, description) tuples.
     """
-    gt = GROUND_TRUTH.get(query)
-    if not gt:
-        return []
+    verified = VERIFIED_DB_IDS.get(query, {})
+    hadith_ids = verified.get("hadith_chunk_ids", [])
 
-    return gt.get("expected_hadith", [])
+    result = []
+    for chunk_id, desc in hadith_ids:
+        # Parse collection and number from chunk ID: "hadith_bukhari_8" → ("bukhari", 8)
+        parts = chunk_id.split("_")
+        if len(parts) >= 3 and parts[0] == "hadith":
+            collection = parts[1]
+            number = int(parts[2])
+            result.append((collection, number, desc))
+    return result
