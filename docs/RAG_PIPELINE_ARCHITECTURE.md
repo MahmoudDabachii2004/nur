@@ -1,8 +1,3 @@
-Oui, il y a une modification cruciale à faire. On avait décidé ensemble (suite à l'analyse des limites Groq) de passer au modèle **Llama 4 Scout** pour le "Reporter" (Task 2) afin d'éviter de saturer la limite de 12 000 TPM du 70B, tout en gardant le 70B comme fallback pour les cas extrêmes. Il faut aussi mentionner que l'interface est en anglais par défaut.
-
-Voici le fichier complet et mis à jour. Remplace tout le contenu de ton fichier d'architecture par ceci :
-
-```markdown
 # NUR — RAG Pipeline Architecture (The "Smart Archivist" Model)
 
 > **MANDATORY READ**: This document defines the exact, definitive sequence of operations for the NUR Retrieval-Augmented Generation pipeline. 
