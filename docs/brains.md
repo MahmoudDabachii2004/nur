@@ -843,6 +843,64 @@ This implements Pillar 3 (Authenticity-Weighted Retrieval) education layer + Pil
 
 ---
 
+### [2026-06-22T02:45:00-04:00] — Implementing the CLI (Rich + Typer Interactive Terminal Chatbot)
+* **Decision ID:** `DEC-028`
+* **Status:** Completed (code complete; live test deferred to user)
+* **Author:** Antigravity (AI Peer Engineer)
+
+#### 1. Context & Motivation
+The final Phase 2 component per `docs/PHASES.md`: a user-facing terminal interface that wraps `NURPipeline.query()` into a beautiful, interactive, theologically-safe display. Without this, the pipeline is only accessible via test scripts. The CLI is what makes NUR a "chatbot" rather than a library.
+
+#### 2. Before vs. After
+* **Before:**
+  * The pipeline could only be invoked via `scripts/test_pipeline.py` — a test script, not a user-facing tool.
+  * No interactive mode existed — every query required re-running a script.
+  * The output was plain text, not formatted.
+* **After:**
+  * Created `src/nur/cli.py` — a Rich + Typer CLI with two modes:
+    * **Single-query mode**: `python -m nur "What does the Quran say about charity?"` — answers one question and exits.
+    * **Interactive REPL mode**: `python -m nur` — enters a chat loop at a `NUR>` prompt. User can ask multiple questions. Type `exit` or `quit` or Ctrl+C to leave.
+  * Created `src/nur/__main__.py` — enables `python -m nur` invocation.
+  * Added `[project.scripts]` entry point to `pyproject.toml` (`nur = "nur.cli:app"`) so after `pip install -e .` the user can run `nur` directly.
+  * **Display order (pillar-compliant)**:
+    1. Answer warning (Pillar 4 — must be seen FIRST, before the answer). CRITICAL = red background panel, BIG = red border, SMALL = yellow border.
+    2. Conflict detection / Ikhtilaf (Pillar 9 — only shown if a conflict was detected, not the default "no conflict" message).
+    3. Synthesis — the main answer in a cyan panel.
+    4. Direct reports — each source as a sub-panel with: source ID + label, clickable URL (`[link=URL]` Rich markup), grade (for hadiths), Arabic text (always visible, large, with "العربية:" label — Pillar 10), English report, grade explanation (📚 icon — DEC-027 education layer).
+    5. Sub-questions (verbose only — transparency layer showing how the Architect decomposed the query).
+    6. Retrieval summary (verbose only — top 5 chunks by RRF score).
+    7. Error panel (if any).
+  * **Flags**: `--lang fr` (force French synthesis), `--force-reasoning` (use 70B model), `--no-arabic` (hide Arabic for terminals without font support), `--verbose` (show sub-questions + retrieval).
+  * **Pipeline singleton**: `get_pipeline()` caches the NURPipeline instance so subsequent queries in interactive mode don't re-load BGE-M3.
+  * Used relative imports (`.config`, `.pipeline`) instead of absolute (`src.nur.config`) so the module works correctly as a proper Python package when invoked via `python -m nur`.
+
+#### 3. Impacted Files
+* [cli.py](file:///home/z/my-project/repos/nur/src/nur/cli.py) — Created the Rich + Typer CLI with single-query + interactive modes.
+* [__main__.py](file:///home/z/my-project/repos/nur/src/nur/__main__.py) — Created module entry point for `python -m nur`.
+* [pyproject.toml](file:///home/z/my-project/repos/nur/pyproject.toml) — Added `[project.scripts]` entry point: `nur = "nur.cli:app"`.
+
+#### 4. Validation
+* **Agent-side validation (passed):**
+  * Module imports cleanly as a package: `from nur.cli import app` works.
+  * `python -m nur --help` displays the full help text with all 4 flags and examples.
+  * Typer app has 1 registered command with correct argument + options.
+  * All 8 display functions present (display_answer_warning, display_synthesis, display_conflict_detection, display_direct_reports, display_sub_questions, display_retrieval_summary, display_error, display_result).
+  * Relative imports work correctly when invoked via `python -m nur`.
+  * Pre-flight check for `GROQ_API_KEY` exits with a clear error if missing.
+* **Live integration validation (DEFERRED TO USER per Rule 3):**
+  * The agent server cannot run the CLI live because it lacks BGE-M3, ChromaDB, and a working Groq API key.
+  * The user MUST run on their Mac:
+    ```
+    python -m nur "What does the Quran say about charity?"
+    ```
+    or for interactive mode:
+    ```
+    python -m nur
+    ```
+  * Expected: beautiful Rich-formatted output with Arabic text, clickable URLs, grade explanations, and (if applicable) warning panels.
+
+---
+
 ## Future Architectural Plans
 
 ### [Phase 2] — LLM-Synthesized Contextual Retrieval via Kaggle GPUs

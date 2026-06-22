@@ -9,6 +9,9 @@ authors = [
     { name = "Mahmoud Dabachi" }
 ]
 
+[project.scripts]
+nur = "nur.cli:app"
+
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"

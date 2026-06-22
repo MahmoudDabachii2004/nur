@@ -41,7 +41,8 @@ src/nur/
 │   └── fusion.py      # RRF fusion (k=25, α=0.4 dense / 0.6 sparse) ✅ DEC-021
 ├── generator/         # Groq API (Architect + Reporter) + Instructor ✅ DEC-022
 │   └── __init__.py    # Architect, Reporter, Generator classes + Pydantic schemas
-└── cli.py             # Rich + Typer interactive CLI  ← Next
+├── grades.py          # Hadith grade education + two-tier warning ✅ DEC-027
+└── cli.py             # Rich + Typer interactive CLI ✅ DEC-028
 ```
 
 **Progress checklist**:
@@ -50,8 +51,8 @@ src/nur/
 - [x] `fusion.py` — RRFFuser implementing Reciprocal Rank Fusion. Tested via `scripts/test_fusion.py` (pure-math, 9 tests pass: hand-computed scores, both-lists boost, single-list cases, top_k truncation, empty inputs, determinism, config defaults, invalid param validation). All pass.
 - [x] `generator/` — Architect (Step 1: query decomposition, `Mode.TOOLS`) + Reporter (Step 4: structured JSON report, `Mode.JSON_SCHEMA`) + Generator facade. Both tests PASSED on user's Mac (DEC-022 + DEC-024): Architect returns 4 well-decomposed sub-questions, Reporter returns valid structured report with all source IDs cited, Arabic preserved verbatim, "Strict Archivist" persona working.
 - [x] `pipeline.py` — NURPipeline orchestrator wiring Architect → multi-query hybrid retrieval (4 sources × N queries) → RRF fusion → dedup → Reporter. Lazy-loads BGE-M3 on first query. Handles all 4 source metadata schemas (quran, hadith, tafsir_ar, tafsir_en). Returns `PipelineResult` with all intermediate steps for transparency. **Live integration test PASSED on user's Mac** (DEC-026): 12.2s total, 4 sub-questions generated, 30 chunks retrieved, 4 direct reports with valid source IDs, synthesis cites all 4 IDs. Retrieved exactly the right verses for "charity and zakat" (9:60 the 8 categories, 2:273 the restricted poor, 70:25 the deprived, 19:31 prayer + zakah). **Grade enrichment added** (DEC-027): pipeline now attaches hadith grade explanations + computes answer-level warnings (two-tier: CRITICAL for Mawdu, BIG for only-Da'if, SMALL for Da'if-alongside-Sahih/Hasan).
-- [ ] `cli.py` — Rich + Typer interactive terminal chatbot. **Next.**
-- [ ] End-to-end validation: real user question → cited, structured answer.
+- [x] `cli.py` — Rich + Typer interactive terminal chatbot. Two modes: single-query (`python -m nur "question"`) and interactive REPL (`python -m nur`). Displays: answer warning FIRST (Pillar 4), conflict detection (Pillar 9), synthesis, direct reports with Arabic (large, RTL — Pillar 10), grade explanations (Pillar 3), clickable URLs (Pillar 7). Flags: `--lang fr`, `--force-reasoning`, `--no-arabic`, `--verbose`. Entry point added to pyproject.toml (`nur = "nur.cli:app"`). **Live test deferred to user** — needs BGE-M3 + ChromaDB + Groq.
+- [ ] End-to-end validation: real user question → cited, structured answer. **This is the final Phase 2 deliverable.**
 
 **Key Decisions (The Smart Archivist Pipeline)**:
 - **Task 1 (Architect)**: `llama-3.1-8b-instant` (Groq). Takes raw query, outputs JSON array of 1 to N sub-questions in FR/EN.
