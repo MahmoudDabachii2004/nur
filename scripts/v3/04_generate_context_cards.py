@@ -174,7 +174,7 @@ def build_qwen_prompt(record: dict, tafsir_excerpt: str) -> str:
 
 
 def parse_card_response(text: str) -> dict | None:
-    """Parse the LLM output as JSON, tolerant of surrounding text."""
+    """Parse the LLM output as JSON, tolerant of surrounding text and truncated output."""
     text = text.strip()
     # Strip trailing stop tokens
     for stop in ("<|im_end|>", "<|im_start|>"):
@@ -183,13 +183,66 @@ def parse_card_response(text: str) -> dict | None:
     # Find first { and last }
     start = text.find("{")
     end = text.rfind("}")
-    if start == -1 or end == -1 or end <= start:
+    if start == -1:
         return None
+    if end == -1 or end <= start:
+        # JSON truncated before closing brace — try to repair
+        return _repair_truncated_json(text[start:])
     try:
-        card = json.loads(text[start : end + 1])
+        return json.loads(text[start : end + 1])
+    except json.JSONDecodeError:
+        # Try repair
+        return _repair_truncated_json(text[start:])
+
+
+def _repair_truncated_json(text: str) -> dict | None:
+    """Attempt to repair truncated JSON by closing open brackets/braces.
+
+    Common failure: max_tokens hit mid-keyword, JSON looks like:
+      {"fr": {"theme": "...", "keywords": ["الذي
+    We try to close: ["الذي"]}]} }
+    """
+    if not text.startswith("{"):
+        return None
+
+    # Track open brackets/braces
+    open_stack = []
+    in_string = False
+    escape_next = False
+    for ch in text:
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == "\\":
+            escape_next = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch in "{[":
+            open_stack.append(ch)
+        elif ch == "}" and open_stack and open_stack[-1] == "{":
+            open_stack.pop()
+        elif ch == "]" and open_stack and open_stack[-1] == "[":
+            open_stack.pop()
+
+    # If we're inside a string, close it
+    repaired = text
+    if in_string:
+        repaired += '"'
+    # Close any open arrays/objects
+    for opener in reversed(open_stack):
+        if opener == "[":
+            repaired += "]"
+        elif opener == "{":
+            repaired += "}"
+
+    try:
+        return json.loads(repaired)
     except json.JSONDecodeError:
         return None
-    return card
 
 
 def validate_card(card: dict) -> bool:
@@ -280,7 +333,7 @@ def main() -> int:
 
     sampling_params = SamplingParams(
         temperature=0.0,
-        max_tokens=400,
+        max_tokens=800,  # bumped from 400 — fixes JSON truncation on keyword-rich AR verses
         stop=["<|im_end|>", "<|im_start|>"],
     )
 
