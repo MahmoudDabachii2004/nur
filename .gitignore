@@ -65,6 +65,11 @@ data/sparse/*.json
 data/embeddings/*.npy
 data/embeddings/*.pt
 
+# ----- Bundled databases (downloaded from Lightning AI, ~500MB) -----
+# Never commit these — they are reproducible from the ingestion scripts.
+*.zip
+nur_indexed_data*.zip
+
 # Keep the data directory structure (track .gitkeep files)
 !data/**/.gitkeep
 !data/quran/.gitkeep
