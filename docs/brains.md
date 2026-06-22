@@ -316,11 +316,64 @@ In dual GPU settings on Kaggle, our previous single-process sequential pipeline 
 
 ---
 
+### [2026-06-21T21:05:00-04:00] — Verifying Local Database Sanity for Phase 2 Retrieval Pipeline
+* **Decision ID:** `DEC-014`
+* **Status:** Completed
+* **Author:** Antigravity (AI Peer Engineer)
+
+#### 1. Context & Motivation
+Before building the retrieval pipeline, we must verify that the local Python environment can connect to ChromaDB and read the 4 expected collections: `quran_dense`, `hadith_dense`, `tafsir_ar_dense`, and `tafsir_en_dense`.
+
+#### 2. Before vs. After
+* **Before:**
+  * Local ChromaDB database contents were unzipped but not verified for availability, structure, and collection document counts.
+* **After:**
+  * Created `scripts/verify_db.py` to connect via `chromadb.PersistentClient` pointing to `./data/chroma_db` and count the documents in the collections.
+  * Verified all 4 expected collections are fully loaded and accessible.
+
+#### 3. Impacted Files
+* [verify_db.py](file:///Users/mahmoud/Documents/nur/nur/scripts/verify_db.py) — Created script to check ChromaDB collections sanity.
+
+#### 4. Validation
+* Ran the script successfully, yielding:
+  * `quran_dense`: 6,236 documents
+  * `hadith_dense`: 33,738 documents
+  * `tafsir_ar_dense`: 6,236 documents
+  * `tafsir_en_dense`: 6,236 documents
+
+---
+
+### [2026-06-21T21:12:00-04:00] — Implementing and Testing Semantic Dense Retriever
+* **Decision ID:** `DEC-015`
+* **Status:** Completed
+* **Author:** Antigravity (AI Peer Engineer)
+
+#### 1. Context & Motivation
+With the ChromaDB database verified, we need to implement the first component of the retrieval pipeline: semantic (dense) search. This component queries specific collections using dense embedding vectors.
+
+#### 2. Before vs. After
+* **Before:**
+  * No dedicated retriever module existed to connect to ChromaDB and run semantic searches.
+* **After:**
+  * Implemented `src/nur/retriever/dense.py` defining the `DenseRetriever` class.
+  * Created `scripts/test_dense_search.py` to encode queries using a local `BGEM3FlagModel` on the `mps` device (Apple Silicon) and verify search results.
+
+#### 3. Impacted Files
+* [dense.py](file:///Users/mahmoud/Documents/nur/nur/src/nur/retriever/dense.py) — Created dense semantic retriever module.
+* [test_dense_search.py](file:///Users/mahmoud/Documents/nur/nur/scripts/test_dense_search.py) — Created test script for dense search.
+
+#### 4. Validation
+* Handed off to user to execute and inspect local search outputs.
+
+---
+
 ## Future Architectural Plans
 
 ### [Phase 2] — LLM-Synthesized Contextual Retrieval via Kaggle GPUs
 * **Goal:** Run `kaggle_context_synthesizer.py` on Kaggle with the AWQ model, single-GPU configuration, and force-uninstalled FlashInfer backend to generate and index enriched bilingual contexts.
 * **Rationale:** Maximizes retrieval scores across all 3 target languages while maintaining zero local CPU runtime cost.
+
+
 
 
 

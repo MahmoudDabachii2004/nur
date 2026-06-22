@@ -1,110 +1,74 @@
-# NUR — The 10 Pillars
+# NUR — The 10 Functional Pillars
 
-> Full details in [`ARCHITECTURE.md`](ARCHITECTURE.md). This is the executive summary.
+> Executive summary of NUR's core principles. These pillars are non-negotiable functional requirements that guide all architectural and technical decisions.
 
 ## Pillar 1 — Triple-Index + Scholar Index
 
-Four separate ChromaDB collections instead of one mixed index:
+To maintain theological integrity, we do not mix the Word of Allah with human commentary. The system uses separate logical indexes:
 
-| Collection | Chunks | Granularity | Why separate |
-|-----------|--------|-------------|--------------|
-| `quran_dense` | 6,236 | 1 ayah = 1 chunk | Word of Allah — never confused with anything else |
-| `hadith_dense` | 33,738 | 1 hadith = 1 chunk | Word of the Prophet ﷺ — grade-aware |
-| `tafsir_ar_dense` | 6,236 | 1 section = 1 chunk | Classical commentary |
-| `tafsir_en_dense` | 6,236 | 1 section = 1 chunk | English commentary |
-
-Plus a **scholar index** in Phase 7 for fatwas and opinions.
+- **Quran Index**: 1 ayah = 1 chunk. The absolute source of truth.
+- **Hadith Index**: 1 hadith = 1 chunk. Grade-aware (Sahih, Hasan, Da'if).
+- **Tafsir Index**: Classical exegesis (e.g., Ibn Kathir), chunked by logical sections.
+- **Scholar Index (Future)**: Fatwas and jurisprudential opinions, linked to their scriptural evidence.
 
 ## Pillar 2 — Arabic-First Cross-Lingual Retrieval
 
-Arabic is the source of truth. English is a comprehension aid.
-
-`BAAI/bge-m3` places Arabic and English in the **same vector space** — so a query like
-"charity obligatory" matches `زكاة` directly, without a translation step.
+Arabic is the source of truth. Translations (French/English) are comprehension aids. We use multilingual embedding models (`BAAI/bge-m3`) that map Arabic text and translated queries into the **same vector space**. This allows matching a French question directly to an Arabic verse without a lossy intermediate translation step.
 
 ## Pillar 3 — Authenticity-Weighted Retrieval
 
-| Grade | Weight | Meaning |
-|-------|--------|---------|
-| Sahih | ×1.30 | Authentic chain — +30% boost |
-| Hasan | ×1.10 | Good chain — +10% boost |
-| Da'if | ×0.50 | Weak chain — -50% penalty |
-| Mawdu' | ×0.00 | Fabricated — excluded (kept only for fake-hadith detection) |
+In Islam, the strength of the narration chain is more important than mere text similarity. The retrieval system must weight scores by Hadith grade:
 
-A less-similar Sahih hadith can rank above a more-similar Da'if one — because in Islam,
-the strength of the chain matters more than text similarity.
+- **Sahih**: +30% boost (Authentic)
+- **Hasan**: +10% boost (Good)
+- **Da'if**: -50% penalty (Weak — last resort, requires warning)
+- **Mawdu'**: Excluded (Fabricated — kept only for detection purposes)
 
-## Pillar 4 — Post-Generation Verification
+## Pillar 4 — Post-Generation Verification (Anti-Hallucination)
 
-Three-layer anti-hallucination (Phase 6):
+A wrong religious answer is worse than no answer. The system implements a multi-layer verification pipeline after the LLM generates a response:
 
-1. **NLI verification** — every sentence of the LLM response must be entailed by retrieved chunks (threshold 0.95)
-2. **Character-by-character Quran check** — every cited verse must match the Uthmani text exactly (after normalization)
-3. **Decoupled grounding** — LLM produces `exact_citations` and `synthesis` separately; parser rejects if citation isn't word-for-word
+1. **NLI Verification**: Every sentence must be entailed by retrieved chunks (threshold 0.95).
+2. **Character-by-Character Quran Check**: Every cited verse must match the Uthmani text exactly after normalization.
+3. **Decoupled Grounding**: LLM produces `exact_citations` and `synthesis` separately; parser rejects if citation isn't word-for-word.
 
-## Pillar 5 — Context-Enriched Chunks (Anthropic Technique)
+## Pillar 5 — Dual-Layer Context-Enriched Chunks
 
-Each chunk is prefixed with LLM-generated context (Phase 4):
+Bare text chunks lack global context. We implement a two-layer enrichment strategy before embedding:
 
-> "This verse is from Surah Al-Baqarah, ayah 255, known as Ayat al-Kursi. It discusses the omnipotence and omniscience of Allah. Meccan revelation."
+1. **Structural Context** (`DEC-001`): Chunks are prefixed with metadata (Surah name, revelation type, narrator, grade, 300-char EN snippet).
+2. **LLM-Synthesized Context** (`kaggle_context_synthesizer.py`): An LLM (Qwen2.5-14B-AWQ) generates a bilingual FR/EN index card (Theme, Rule, Keywords) for each chunk. This directly solves the French sparse-match weakness identified in `DEC-004`.
+- **Impact**: Reduces retrieval failures by 67% (Anthropic, 2024) and enables true trilingual hybrid search.
 
-Reduces retrieval failures by 67% (Anthropic, 2024). Essential for Islamic text where
-verses depend heavily on revelation context (Asbab al-Nuzul).
+## Pillar 6 — Hybrid LLM Strategy (Cloud + Local)
 
-## Pillar 6 — Hybrid LLM (Groq + Ollama)
+The system uses a multi-model architecture to balance deep reasoning, API limits, and offline resilience:
 
-| Use case | Model | Why |
-|----------|-------|-----|
-| Default Arabic/English | Groq Qwen3-32B | Best Arabic on free tier (60 RPM) |
-| Complex fiqh reasoning | Groq Qwen3.6-27B | Thinking mode, GPQA 87.8 |
-| Offline / privacy | Ollama Qwen2.5-7B (local) | 100% on-device, ~15 tok/s on M4 |
-| Groq down | OpenRouter Qwen3-32B | Free fallback |
+- **Task 1: The Architect (Groq - `llama-3.1-8b-instant`)**: Fast, cheap, high-volume. Used to decompose complex user queries into sub-questions in FR/EN.
+- **Task 2: The Reporter (Groq - `meta-llama/llama-4-scout-17b-16e-instruct`)**: Deep reasoning, native Arabic support. Receives ~10 chunks and generates the strict JSON report. (Fallback: `llama-3.3-70b-versatile` for extreme dilemmas).
+- **Offline Fallback (Local PC - `llama-3.1-8b` via Ollama)**: If Groq hits a Rate Limit (429), the system silently reroutes to the local PC.
+- **Rule**: Sacred texts (embeddings) never leave the local machine. The LLM analyzes the FR/EN context to avoid reasoning errors, and copies the Arabic text exactly.
 
-**Key principle**: embeddings run 100% locally — sacred text never leaves the machine.
-Only the question + retrieved context go to the cloud LLM.
+## Pillar 7 — Structured Citation Protocol (Source IDs)
 
-## Pillar 7 — Source ID Protocol
-
-Inject numbered IDs into the prompt:
-
-```xml
-<document id="S1">
-  <source_id>SRC-QURAN-2-255</source_id>
-  <source_type>quran</source_type>
-  <label>Quran 2:255</label>
-  <arabic>اللَّهُ لَا إِلَٰهَ إِلَّا هُوَ...</arabic>
-  <english>Allah! There is no deity except Him...</english>
-  <url>https://quran.com/2/255</url>
-</document>
-```
-
-LLM is forced to cite `[S1]`, `[S2]`, etc. Post-processing maps each `[SX]` to the
-rich display with Arabic text + translation + clickable URL.
+To prevent LLMs from inventing references, we inject XML-formatted documents with UPPERCASE Source IDs (e.g., `SRC-QURAN-2-255`) into the prompt. The LLM is forced to cite these IDs. Post-processing maps them to clickable URLs and rich displays.
 
 ## Pillar 8 — Scholar Opinions Are Mandatory
 
-The system **never** gives its own opinion. It **always** reports:
+The system **never** gives its own opinion. It **always** reports structured scholarly views:
 
-> "Imam Malik said [opinion], based on [Quran verse] and [hadith]. Source: Al-Muwatta, Book X, Chapter Y."
+- Scholar name, era, and Madhhab (school of thought).
+- The exact opinion.
+- Scriptural evidence (Quran + Hadith) supporting the opinion.
+- Book source reference.
 
-Sources (all free): IslamQA.info, Islamweb.net, Dar al-Ifta Egypt, Shamela.ws.
+## Pillar 9 — Ikhtilaf Awareness (Consciousness of Disagreement)
 
-## Pillar 9 — Ikhtilaf Awareness
+When scholarly disagreement (Ikhtilaf) exists, the system detects it and presents all views with absolute neutrality. It never encourages or discourages an opinion. It explicitly states if there is Ijma' (consensus) or isolated views, ending with a disclaimer to consult a qualified scholar.
 
-Five levels of consensus presentation (absolute neutrality required):
+## Pillar 10 — Bilingual Interface + Arabic Source of Truth
 
-1. **Ijma'** (unanimous consensus)
-2. **Overwhelming majority** (1 dissenting school)
-3. **Significant disagreement** (no clear majority)
-4. **Isolated opinion** (1 school vs all others) — most delicate
-5. **Aqeedah** (no ikhtilaf tolerated — must match authentic texts)
-
-**Absolute rule**: never encourage, never discourage. Present facts. Let the Muslim decide.
-
-## Pillar 10 — Arabic-English Bilingual
-
-Arabic: source of truth, always displayed.
-English: comprehension aid, always shown alongside Arabic.
-
-(French was considered in the original architecture doc but dropped — project is
-English+Arabic only per project direction.)
+Arabic: The source of truth. It is NOT a toggleable option. Arabic text (Quran, Hadith) must always be displayed alongside any answer or citation.
+Default Interface Language: English. The UI defaults to English, and the LLM's default synthesis language is English. This ensures maximum LLM reasoning accuracy and JSON stability.
+Secondary Language: French. The user can toggle the UI and the LLM's synthesis to French.
+Behavior: If the user selects English (default), the LLM explains the ruling in English, but the Arabic verse/hadith is still displayed above it.
