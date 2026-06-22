@@ -36,12 +36,21 @@ Dense search benchmark passed. The Qwen 14B contextual prefix successfully resol
 src/nur/
 ├── pipeline.py        # NURPipeline orchestrator
 ├── retriever/
-│   ├── dense.py       # ChromaDB queries (4 collections parallel) ✅
-│   ├── sparse.py      # Sparse JSON dot-product scoring (Next)
-│   └── fusion.py      # RRF fusion (k=25, α=0.4 dense / 0.6 sparse)
+│   ├── dense.py       # ChromaDB queries (4 collections parallel) ✅ DEC-015
+│   ├── sparse.py      # Sparse JSON dot-product scoring ✅ DEC-018
+│   └── fusion.py      # RRF fusion (k=25, α=0.4 dense / 0.6 sparse)  ← Next
 ├── generator.py       # Groq API (Architect + Reporter) + Instructor + JSON Schema
 └── cli.py             # Rich + Typer interactive CLI
 ```
+
+**Progress checklist**:
+- [x] `dense.py` — DenseRetriever connected to ChromaDB. Tested via `scripts/benchmark_dense.py` with 6 queries (EN/FR/AR) across quran + hadith. All return on-topic results with healthy similarity scores (0.65+).
+- [x] `sparse.py` — SparseRetriever with inverted index. Tested via `scripts/test_sparse_search.py` (model-free, 3 self-similarity cases pass) + 6 stress tests (empty query, non-existent token, top_k edges, determinism, dot-product math). All pass.
+- [ ] `fusion.py` — RRF fusion of dense + sparse ranks. **Next.**
+- [ ] `generator.py` — Groq API calls (Architect + Reporter) with `instructor` for structured JSON.
+- [ ] `pipeline.py` — Orchestrator wiring retriever → fusion → generator.
+- [ ] `cli.py` — Rich + Typer interactive terminal chatbot.
+- [ ] End-to-end validation: real user question → cited, structured answer.
 
 **Key Decisions (The Smart Archivist Pipeline)**:
 - **Task 1 (Architect)**: `llama-3.1-8b-instant` (Groq). Takes raw query, outputs JSON array of 1 to N sub-questions in FR/EN.
