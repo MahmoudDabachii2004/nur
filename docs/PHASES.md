@@ -34,7 +34,7 @@ Dense search benchmark passed. The Qwen 14B contextual prefix successfully resol
 **Code structure to build**:
 ```
 src/nur/
-├── pipeline.py        # NURPipeline orchestrator
+├── pipeline.py        # NURPipeline orchestrator ✅ DEC-025
 ├── retriever/
 │   ├── dense.py       # ChromaDB queries (4 collections parallel) ✅ DEC-015
 │   ├── sparse.py      # Sparse JSON dot-product scoring ✅ DEC-018
@@ -48,9 +48,9 @@ src/nur/
 - [x] `dense.py` — DenseRetriever connected to ChromaDB. Tested via `scripts/benchmark_dense.py` with 6 queries (EN/FR/AR) across quran + hadith. All return on-topic results with healthy similarity scores (0.65+).
 - [x] `sparse.py` — SparseRetriever with inverted index. Tested via `scripts/test_sparse_search.py` (model-free, 3 self-similarity cases pass) + 6 stress tests (empty query, non-existent token, top_k edges, determinism, dot-product math). All pass.
 - [x] `fusion.py` — RRFFuser implementing Reciprocal Rank Fusion. Tested via `scripts/test_fusion.py` (pure-math, 9 tests pass: hand-computed scores, both-lists boost, single-list cases, top_k truncation, empty inputs, determinism, config defaults, invalid param validation). All pass.
-- [x] `generator/` — Architect (Step 1: query decomposition) + Reporter (Step 4: structured JSON report) + Generator facade. Uses `instructor` + Pydantic for schema enforcement, `tenacity` for retry on transient errors. Verified SDK API surface by inspecting installed `groq==1.5.0` and `instructor==1.15.3`. Pydantic schemas + system prompts validated on agent side. **Reporter test PASSED on user's Mac** (DEC-022): 3 direct reports, all source IDs cited, Arabic preserved verbatim, "Strict Archivist" persona working. **Architect fixed in DEC-024**: switched from `Mode.JSON_SCHEMA` to `Mode.TOOLS` because `llama-3.1-8b-instant` doesn't support `json_schema` response format. Awaiting user re-test of Architect.
-- [ ] `pipeline.py` — Orchestrator wiring retriever → fusion → generator. **Next.**
-- [ ] `cli.py` — Rich + Typer interactive terminal chatbot.
+- [x] `generator/` — Architect (Step 1: query decomposition, `Mode.TOOLS`) + Reporter (Step 4: structured JSON report, `Mode.JSON_SCHEMA`) + Generator facade. Both tests PASSED on user's Mac (DEC-022 + DEC-024): Architect returns 4 well-decomposed sub-questions, Reporter returns valid structured report with all source IDs cited, Arabic preserved verbatim, "Strict Archivist" persona working.
+- [x] `pipeline.py` — NURPipeline orchestrator wiring Architect → multi-query hybrid retrieval (4 sources × N queries) → RRF fusion → dedup → Reporter. Lazy-loads BGE-M3 on first query. Handles all 4 source metadata schemas (quran, hadith, tafsir_ar, tafsir_en). Returns `PipelineResult` with all intermediate steps for transparency. **Live integration test deferred to user** (`scripts/test_pipeline.py`) — needs BGE-M3 + ChromaDB + Groq API, none of which are available on the agent server.
+- [ ] `cli.py` — Rich + Typer interactive terminal chatbot. **Next.**
 - [ ] End-to-end validation: real user question → cited, structured answer.
 
 **Key Decisions (The Smart Archivist Pipeline)**:

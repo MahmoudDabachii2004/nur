@@ -715,6 +715,53 @@ The user also gave the agent the Groq rate limit table (saved to `/home/z/my-pro
 
 ---
 
+### [2026-06-22T01:30:00-04:00] — Implementing NURPipeline Orchestrator (Phase 2)
+* **Decision ID:** `DEC-025`
+* **Status:** Completed (code complete; live integration test deferred to user)
+* **Author:** Antigravity (AI Peer Engineer)
+
+#### 1. Context & Motivation
+With the Architect + Reporter (DEC-022, DEC-024) and the retriever trio (DEC-015, DEC-018, DEC-021) all validated, the remaining Phase 2 component is `pipeline.py` — the orchestrator that wires them together into the 5-step "Smart Archivist" flow defined in `docs/RAG_PIPELINE_ARCHITECTURE.md`. Without this orchestrator, a user would have to manually call 7 components in sequence with complex data transformations between them. The pipeline encapsulates all of that into a single `query(user_question)` call.
+
+#### 2. Before vs. After
+* **Before:**
+  * No orchestrator existed. The 7 Phase 2 components (DenseRetriever, SparseRetriever, RRFFuser, Architect, Reporter, Generator, SourceRef) were individually tested but never wired together.
+  * No code handled the multi-query hybrid retrieval pattern (Step 2): encoding each sub-question once, searching all 4 collections per query, fusing dense+sparse per (query, source), and deduplicating across the entire pool.
+  * No code converted ChromaDB metadata back into `SourceRef` objects for the 4 different source types (quran, hadith, tafsir_ar, tafsir_en) — each has a different metadata schema.
+* **After:**
+  * Created `src/nur/pipeline.py` defining `NURPipeline` and `PipelineResult`.
+  * **`NURPipeline`** class with:
+    * Lazy BGE-M3 loading (2.3GB model loads on first `query()` call, not at construction — keeps instantiation fast for debugging).
+    * Auto device detection (CUDA > MPS > CPU).
+    * `_encode_query(query)` — encodes a query string into (dense_vector, sparse_vector) in one BGE-M3 call.
+    * `_retrieve(queries, top_k)` — multi-query hybrid retrieval: for each query, encodes it once, then for each of the 4 sources runs dense + sparse + RRF fusion. Deduplicates by chunk ID keeping the MAX RRF score. Returns top 30.
+    * `_chunks_to_source_refs(chunks)` — batch-fetches metadata from ChromaDB for the top 10 chunks and constructs `SourceRef` objects. Handles all 4 metadata schemas (quran: `text_ar/en`, hadith: `text_ar/en` + `collection` + `hadith_number` + `grade`, tafsir_ar: `tafsir_text_ar`, tafsir_en: `tafsir_text`).
+    * `query(user_query, force_reasoning=False)` — the main entry point. Runs all 5 steps and returns a `PipelineResult` with every intermediate result for transparency.
+  * **`PipelineResult`** dataclass with: `user_query`, `sub_questions`, `retrieved_chunks` (top 30), `top_chunks` (top 10 SourceRefs), `report` (ReporterOutput), `error`. The CLI will use this to display a rich, transparent response.
+  * Created `scripts/test_pipeline.py` — full integration test with `--query` and `--force-reasoning` CLI flags. Prints all intermediate steps (sub-questions, retrieved chunks with RRF scores + ranks, top 10 SourceRefs, final report) and runs 4 validation checks (sub-question count, retrieval non-empty, SourceRefs built, report structure + source ID citation).
+
+#### 3. Impacted Files
+* [pipeline.py](file:///home/z/my-project/repos/nur/src/nur/pipeline.py) — Created NURPipeline orchestrator + PipelineResult dataclass.
+* [test_pipeline.py](file:///home/z/my-project/repos/nur/scripts/test_pipeline.py) — Created full integration test script.
+
+#### 4. Validation
+* **Agent-side validation (passed):**
+  * Module imports cleanly: `from src.nur.pipeline import NURPipeline, PipelineResult` works.
+  * `_build_source_ref` static method constructs valid SourceRef objects for all 4 source types (verified with synthetic metadata for quran, hadith, tafsir_ar, tafsir_en).
+  * Source IDs generate correctly: `SRC-QURAN-1-1`, `SRC-HADITH-BUKHARI-1`, `SRC-TAFSIR-AR-1-1`, `SRC-TAFSIR-EN-1-1`.
+  * URL generation works for all 4 types (quran.com, sunnah.com, quran.com/tafsir).
+  * Grade weight computation works for hadith (Sahih → 1.3).
+  * `PipelineResult` dataclass has all expected fields.
+  * Test script imports cleanly and argparse defaults are correct.
+* **Live integration validation (DEFERRED TO USER per Rule 3):**
+  * The agent server cannot run `test_pipeline.py` because it lacks:
+    1. BGE-M3 model weights (2.3GB, disk space limited)
+    2. A working Groq API key (returns 403)
+    3. Sufficient compute for BGE-M3 inference (CPU-only torch)
+  * The user MUST run `python scripts/test_pipeline.py` on their Mac to validate the full end-to-end flow. The test script prints clear diagnostics at each step and runs 4 validation checks on the output.
+
+---
+
 ## Future Architectural Plans
 
 ### [Phase 2] — LLM-Synthesized Contextual Retrieval via Kaggle GPUs
