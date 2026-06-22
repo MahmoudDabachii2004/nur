@@ -32,20 +32,47 @@ from src.nur.config import settings
 # ============================================================
 # Known-correct chunks to check recall against.
 # Add entries here as we discover recall gaps in testing.
+#
+# IMPORTANT: Quran chunk IDs use GLOBAL ayah numbering (cumulative
+# from surah 1), NOT standard surah:ayah. To avoid confusion, we
+# search by METADATA (surah_num + standard ayah_num) instead of by
+# chunk ID. The script fetches metadata for all retrieved chunks and
+# matches against these expected entries.
+#
+# For hadiths, the chunk ID format is hadith_{collection_slug}_{number}
+# which IS consistent, so we can match by chunk ID directly.
 # ============================================================
+
+# Hadith collection slug mapping (matches HADITH_COLLECTION_SLUGS in sources.py)
+_HADITH_SLUGS = {
+    "bukhari": "Sahih al-Bukhari",
+    "muslim": "Sahih Muslim",
+    "abudawud": "Sunan Abi Dawud",
+    "tirmidhi": "Jami` at-Tirmidhi",
+    "nasai": "Sunan an-Nasa'i",
+    "ibnmajah": "Sunan Ibn Majah",
+}
+
 
 RECALL_CHECKS: dict[str, dict] = {
     "Is prayer obligatory": {
         "query": "Is prayer obligatory",
-        "expected": [
-            ("quran_2_43", "Quran 2:43 — 'establish prayer' (foundational command)"),
-            ("quran_2_3", "Quran 2:3 — believers establish prayer"),
-            ("quran_4_103", "Quran 4:103 — 'prayer decreed upon believers'"),
-            ("quran_2_110", "Quran 2:110 — establish prayer + give zakat"),
-            ("quran_2_238", "Quran 2:238 — 'guard prayers'"),
-            ("hadith_bukhari_8", "Bukhari #8 — Islam built on 5 pillars"),
-            ("hadith_muslim_8", "Muslim #8 — 5 pillars hadith"),
-            ("hadith_bukhari_1", "Bukhari #1 — actions by intention"),
+        "expected_quran": [
+            # (surah_num, standard_ayah_num, description)
+            (2, 43, "Quran 2:43 — 'establish prayer' (foundational command)"),
+            (2, 3, "Quran 2:3 — believers establish prayer"),
+            (4, 103, "Quran 4:103 — 'prayer decreed upon believers'"),
+            (2, 110, "Quran 2:110 — establish prayer + give zakat"),
+            (2, 238, "Quran 2:238 — 'guard prayers'"),
+            (19, 31, "Quran 19:31 — Jesus enjoined to pray"),
+            (20, 132, "Quran 20:132 — enjoin prayer on your family"),
+            (73, 20, "Quran 73:20 — night prayer obligation"),
+        ],
+        "expected_hadith": [
+            # (collection_slug, hadith_number, description)
+            ("bukhari", 8, "Bukhari #8 — Islam built on 5 pillars"),
+            ("muslim", 8, "Muslim #8 — 5 pillars hadith"),
+            ("bukhari", 1, "Bukhari #1 — actions by intention"),
         ],
     },
 }
@@ -105,7 +132,7 @@ def main() -> None:
     print(f"# rank | chunk_id | source | rrf_score | dense_rank | sparse_rank | text_preview")
     print()
 
-    # Build a lookup of chunk metadata for previews (batch fetch)
+    # Build a lookup of chunk metadata for previews AND recall checking (batch fetch)
     import chromadb
     client = chromadb.PersistentClient(path=str(settings.chroma_path if hasattr(settings, 'chroma_path') else './data/chroma_db'))
     
@@ -114,16 +141,25 @@ def main() -> None:
     for chunk in retrieved:
         by_source.setdefault(chunk["source"], []).append(chunk["id"])
     
-    # Fetch metadata for previews
-    metadata_map: dict[str, str] = {}
+    # Fetch metadata + documents for all retrieved chunks
+    # metadata_map stores: chunk_id → {preview: str, surah_num: int, ayah_num: int, hadith_number: int, ...}
+    metadata_map: dict[str, dict] = {}
     for source, chunk_ids in by_source.items():
         try:
             col = client.get_collection(f"{source}_dense")
-            res = col.get(ids=chunk_ids, include=["documents"])
+            res = col.get(ids=chunk_ids, include=["documents", "metadatas"])
             for i, cid in enumerate(res["ids"]):
                 doc = res["documents"][i] if i < len(res["documents"]) else ""
-                # Extract just the first 80 chars of the actual text (after the context prefix)
-                metadata_map[cid] = doc[:80].replace("\n", " ").replace("\r", " ")
+                meta = res["metadatas"][i] if i < len(res["metadatas"]) else {}
+                preview = doc[:80].replace("\n", " ").replace("\r", " ")
+                metadata_map[cid] = {
+                    "preview": preview,
+                    "surah_num": meta.get("surah_num"),
+                    "ayah_num": meta.get("ayah_num"),
+                    "hadith_number": meta.get("hadith_number"),
+                    "collection": meta.get("collection"),
+                    "collection_url_slug": meta.get("collection_url_slug"),
+                }
         except Exception as e:
             print(f"# WARNING: could not fetch metadata for {source}: {e}", file=sys.stderr)
 
@@ -133,28 +169,61 @@ def main() -> None:
         rrf = chunk["rrf_score"]
         d_rank = str(chunk["dense_rank"]) if chunk["dense_rank"] else "-"
         s_rank = str(chunk["sparse_rank"]) if chunk["sparse_rank"] else "-"
-        preview = metadata_map.get(cid, "(no preview)")
+        preview = metadata_map.get(cid, {}).get("preview", "(no preview)")
         print(f"{rank:3d} | {cid:30s} | {source:10s} | {rrf:.6f} | {d_rank:>9s} | {s_rank:>10s} | {preview}")
 
     # Step 3: Recall check — did the key chunks appear?
+    # Match by metadata (surah_num + ayah_num for Quran, collection_slug + hadith_number for hadith)
+    # NOT by chunk ID, because Quran chunk IDs use global numbering which is error-prone.
     print()
     print("# ===== RECALL CHECK =====")
     check = RECALL_CHECKS.get(args.query)
     if check:
-        print(f"# Expected chunks for '{args.query}':")
-        retrieved_ids = {c["id"] for c in retrieved}
         found = 0
         total = 0
-        for chunk_id, description in check["expected"]:
+
+        # Check Quran verses by surah_num + standard ayah_num
+        # The metadata stores ayah_num — we need to verify if it's standard or global.
+        # From DEC-030 analysis: Quran chunk IDs use global numbering, but the
+        # metadata ayah_num field may be standard. We check both.
+        print(f"# Expected Quran verses for '{args.query}':")
+        for surah_num, ayah_num, description in check.get("expected_quran", []):
             total += 1
-            if chunk_id in retrieved_ids:
-                rank = next(i for i, c in enumerate(retrieved, 1) if c["id"] == chunk_id)
-                print(f"#   [FOUND rank {rank:3d}] {chunk_id:30s} — {description}")
+            # Search retrieved chunks for a quran chunk with matching surah_num + ayah_num
+            match_rank = None
+            for i, chunk in enumerate(retrieved, 1):
+                if chunk["source"] != "quran":
+                    continue
+                meta = metadata_map.get(chunk["id"], {})
+                if meta.get("surah_num") == surah_num and meta.get("ayah_num") == ayah_num:
+                    match_rank = i
+                    break
+            if match_rank:
+                print(f"#   [FOUND rank {match_rank:3d}] Quran {surah_num}:{ayah_num} — {description}")
                 found += 1
             else:
-                print(f"#   [MISS       ] {chunk_id:30s} — {description}")
+                print(f"#   [MISS       ] Quran {surah_num}:{ayah_num} — {description}")
+
+        # Check Hadiths by collection_slug + hadith_number (chunk ID format is consistent)
         print()
-        print(f"# Recall: {found}/{total} = {found/total*100:.0f}%")
+        print(f"# Expected Hadiths for '{args.query}':")
+        for collection_slug, hadith_number, description in check.get("expected_hadith", []):
+            total += 1
+            expected_id = f"hadith_{collection_slug}_{hadith_number}"
+            match_rank = None
+            for i, chunk in enumerate(retrieved, 1):
+                if chunk["id"] == expected_id:
+                    match_rank = i
+                    break
+            if match_rank:
+                print(f"#   [FOUND rank {match_rank:3d}] {expected_id:30s} — {description}")
+                found += 1
+            else:
+                print(f"#   [MISS       ] {expected_id:30s} — {description}")
+
+        print()
+        pct = found / total * 100 if total > 0 else 0
+        print(f"# Recall: {found}/{total} = {pct:.0f}%")
         if found < total:
             print("# ⚠️  Some key chunks are missing — see MISS entries above.")
             print("#     Consider: improving Architect prompt, increasing --top-k, or adding query expansion.")
