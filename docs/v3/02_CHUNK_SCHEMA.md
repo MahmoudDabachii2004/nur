@@ -72,7 +72,7 @@ Les deux collections partagent un schéma **JSON commun** pour ChromaDB, mais le
                 "language": "en",
                 "text": "Ibn Kathir explains: \"Do not throw yourselves into destruction\"...",
                 "text_full": "...",                   # texte complet non tronqué
-                "truncated": false,                   # true si > 800 chars
+                "truncated": false,                   # true si > 600 chars
                 "url": "https://quran.com/tafsir/2/195"
             },
             {
@@ -105,7 +105,11 @@ Les deux collections partagent un schéma **JSON commun** pour ChromaDB, mais le
         ],
 
         # Cross-refs Quran → Hadith (pré-calculés via parsing tafsir)
-        "hadith_cross_refs": ["SRC-HADITH-BUKHARI-1234", "SRC-HADITH-MUSLIM-567"],
+        "hadith_cross_refs": {
+            "high_confidence": ["SRC-HADITH-BUKHARI-1234", "SRC-HADITH-MUSLIM-567"],
+            "low_confidence": [],
+            "source_methods": ["tafsir_parsing", "asbab_al_nuzul"]
+        },
 
         # URL canonique
         "url": "https://quran.com/2/195",
@@ -226,7 +230,7 @@ through dangerous consumption, dangerous activities, or self-destruction.
 
 ### Truncation — l'analyse complète (voir `05_EMBEDDING_DESIGN.md`)
 
-**Décision** : chaque tafsir est tronqué à **800 chars** dans `embedding_text`. Le texte complet est conservé dans `metadata.tafsirs[].text_full` pour le LLM.
+**Décision** : chaque tafsir est tronqué à **600 chars** dans `embedding_text` (data-driven, voir `05_EMBEDDING_DESIGN.md` section 9). Le texte complet est conservé dans `metadata.tafsirs[].text_full` pour le LLM.
 
 **Rationale détaillée** : voir `05_EMBEDDING_DESIGN.md` (étude comparative des truncations 400/600/800/1200/2000 chars, avec mesures sur 6,236 versets).
 

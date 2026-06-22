@@ -152,7 +152,7 @@
 | Édition | Savant | Siècle | Langue | Sélection V3 ? |
 |---------|--------|--------|-------|-----------------|
 | `ar-tafsir-as-saadi` | As-Sa'di | 20e | AR | ✅ **TERTIARY** |
-| `fr-tafsir-as-saadi` | As-Sa'di | 20e | FR | ✅ Backup FR (l'utilisateur FR) |
+| `fr-tafsir-as-saadi` | As-Sa'di | 20e | FR | Optionnel V3.1 (pas en V3) |
 | `ar-tafsir-al-mukhtasar` | Al-Mukhtasar | Moderne | AR | ✅ Backup tertiary |
 | `en-tafsir-al-mukhtasar` | Al-Mukhtasar | Moderne | EN | Optionnel |
 | `tafsir-ibn-uthaymeen` | Ibn Uthaymeen | 20e | AR | Optionnel V3.1 |
