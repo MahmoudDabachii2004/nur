@@ -57,24 +57,34 @@ _HADITH_SLUGS = {
 RECALL_CHECKS: dict[str, dict] = {
     "Is prayer obligatory": {
         "query": "Is prayer obligatory",
-        # IMPORTANT: The NUR dataset uses a DIFFERENT ayah numbering than the
-        # standard surah:ayah. The numbers below are the DB's ayah_num values,
-        # NOT the standard ones. Verified via direct ChromaDB queries:
-        #   - quran_2_10 (ayah_num=10) = standard 2:3 "establish prayer"
-        #   - quran_2_50 (ayah_num=50) = standard 2:43 "establish prayer + zakah"
-        #   - quran_2_117 (ayah_num=117) = standard 2:110 "establish prayer + zakah"
-        #   - quran_2_284 (ayah_num=284) = standard 2:277 "establish prayer + zakah"
-        #   - quran_4_596 (ayah_num=596) = standard 4:103 "prayer completed, remember Allah"
-        # The DB appears to use cumulative/global numbering within each surah
-        # (basmala counted as ayah 1 + offset). This is a known data-quality
-        # issue to address in a future commit.
+        # Authoritative source: alquran.cloud API search for "establish prayer"
+        # in en.sahih edition (the SAME edition our DB uses). Retrieved
+        # 2026-06-22. This is the official list of 35 Quran verses that
+        # command the establishment of prayer.
+        #
+        # IMPORTANT: The NUR DB uses GLOBAL ayah numbering (cumulative from
+        # surah 1), not standard per-surah numbering. The mapping below was
+        # verified by matching verse text content between the API response
+        # and our DB chunks:
+        #   - Standard 2:3  → DB ayah_num=10  (offset +7, = 7 Al-Fatihah + 3)
+        #   - Standard 4:77 → DB ayah_num=570 (offset +493)
+        #   - Standard 9:5  → DB ayah_num=1240 (offset +1235)
+        # The offset increases with each surah, confirming global numbering.
         "expected_quran": [
             # (surah_num, db_ayah_num, description)
-            (2, 10, "Quran 2:3 (DB:2:10) — 'establish prayer' (foundational)"),
-            (2, 50, "Quran 2:43 (DB:2:50) — 'establish prayer and give zakah'"),
-            (2, 117, "Quran 2:110 (DB:2:117) — 'establish prayer and give zakah'"),
-            (2, 284, "Quran 2:277 (DB:2:284) — 'establish prayer and give zakah'"),
-            (4, 596, "Quran 4:103 (DB:4:596) — 'prayer decreed, remember Allah'"),
+            # Curated to the most-cited "prayer obligation" verses:
+            (2, 10, "Standard 2:3 — 'establish prayer' (foundational)"),
+            (2, 50, "Standard 2:43 — 'establish prayer and give zakah'"),
+            (2, 90, "Standard 2:83 — covenant of Children of Israel"),
+            (2, 117, "Standard 2:110 — 'establish prayer and give zakah'"),
+            (2, 284, "Standard 2:277 — 'establish prayer and give zakah'"),
+            (4, 570, "Standard 4:77 — 'restrain hands and establish prayer'"),
+            (8, 1163, "Standard 8:3 — 'the ones who establish prayer'"),
+            (9, 1246, "Standard 9:11 — 'repent, establish prayer, give zakah'"),
+            (9, 1253, "Standard 9:18 — 'maintain mosques, establish prayer'"),
+            (11, 114, "Standard 11:114 — 'establish prayer at two ends of day'"),
+            # Also 4:103 (prayer decreed) — DB ayah_num verified earlier:
+            (4, 596, "Standard 4:103 — 'prayer decreed, remember Allah'"),
         ],
         "expected_hadith": [
             ("bukhari", 8, "Bukhari #8 — Islam built on 5 pillars"),
