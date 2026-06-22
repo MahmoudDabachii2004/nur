@@ -466,6 +466,33 @@ Phase 2 requires a SparseRetriever to complement the existing DenseRetriever (DE
 
 ---
 
+### [2026-06-21T22:52:00-04:00] — Moving and Publishing .agents Configuration to GitHub
+* **Decision ID:** `DEC-019`
+* **Status:** Completed
+* **Author:** Antigravity (AI Peer Engineer)
+
+#### 1. Context & Motivation
+The user requested to make `.agents` public on GitHub. However, the Git repository resides in the `nur` subdirectory (`/Users/mahmoud/Documents/nur/nur`), while the `.agents` directory was located in the parent folder `/Users/mahmoud/Documents/nur/.agents`, which made it outside the Git repository. We needed to move `.agents` inside the repository while preserving its accessibility to the parent directory workspace via a symbolic link.
+
+#### 2. Before vs. After
+* **Before:**
+  * `.agents` was in the parent workspace directory, untracked by Git.
+  * Git push rejected due to divergent remote changes.
+* **After:**
+  * Moved `.agents` to `nur/.agents`.
+  * Created a symbolic link `.agents → nur/.agents` at the parent workspace directory to maintain agent-system functionality.
+  * Reconciled divergent Git branches using `git pull --rebase` and pushed `.agents` changes successfully to GitHub.
+
+#### 3. Impacted Files
+* [.agents](file:///Users/mahmoud/Documents/nur/nur/.agents) — Moved `.agents` config folder into the repository.
+* [.gitignore](file:///Users/mahmoud/Documents/nur/nur/.gitignore) — Ensured no rules block `.agents`.
+
+#### 4. Validation
+* Ran `git status` to verify working tree is clean.
+* Ran `git push` successfully pushing the local commit `äjout fichier .agent` to GitHub.
+
+---
+
 ## Future Architectural Plans
 
 ### [Phase 2] — LLM-Synthesized Contextual Retrieval via Kaggle GPUs
