@@ -199,11 +199,18 @@ class CrossEncoderReranker:
         for i, chunk in enumerate(chunks):
             reranker_score = float(scores[i]) if i < len(scores) else 0.0
 
-            # Authenticity weighting (Pillar 3)
+            # Authenticity weighting (Pillar 3 + Pillar 1)
+            # Quran = 1.3 (equal to Sahih — the Word of Allah is never
+            # outranked by human narration per Pillar 1)
+            # Hadith = grade-based (Sahih 1.3, Hasan 1.1, Da'if 0.5, Mawdu 0.0)
+            # Tafsir = 1.0 (classical commentary, not graded)
             authenticity_weight = 1.0
             if apply_authenticity_weight and source_refs and i < len(source_refs):
                 ref = source_refs[i]
-                if ref.kind == "hadith" and ref.grade:
+                if ref.kind == "quran":
+                    # Pillar 1: Quran = Word of Allah, highest primacy
+                    authenticity_weight = settings.grade_weight_sahih  # 1.3
+                elif ref.kind == "hadith" and ref.grade:
                     grade_info = get_grade_info(ref.grade)
                     # Map grade level to weight from settings
                     level = grade_info["level"]

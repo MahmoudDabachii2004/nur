@@ -156,16 +156,31 @@ def main() -> None:
     pipeline = NURPipeline()
     print(f"# Pipeline ready. BGE-M3 device: {pipeline._device}")
 
-    # Run all 5 questions
+    # Run all 5 questions (with error handling — skip failed, continue)
     results = []
     for q in TEST_QUESTIONS:
-        result = run_single_query(
-            pipeline=pipeline,
-            query=q["query"],
-            question_type=q["type"],
-            expect=q["expect"],
-        )
-        results.append(result)
+        try:
+            result = run_single_query(
+                pipeline=pipeline,
+                query=q["query"],
+                question_type=q["type"],
+                expect=q["expect"],
+            )
+            results.append(result)
+        except Exception as e:
+            print(f"\n  ❌ FAILED: {type(e).__name__}: {str(e)[:200]}")
+            results.append({
+                "query": q["query"],
+                "type": q["type"],
+                "expect": q["expect"],
+                "top10_dist": {},
+                "top1_score": 0.0,
+                "abstained": True,
+                "elapsed_s": 0.0,
+                "top_10": [],
+                "error": str(e)[:200],
+            })
+            print(f"  Continuing to next question...\n")
 
     # Print comparative summary
     print(f"\n\n{'='*90}")

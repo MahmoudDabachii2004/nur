@@ -292,7 +292,7 @@ class Architect:
                 {"role": "user", "content": user_query},
             ],
             temperature=0.0,
-            max_tokens=512,
+            max_tokens=1024,  # was 512 — too small for 6 sub-questions + 6-15 keywords + tool-call overhead
         )
         # instructor returns the validated Pydantic model directly
         return response.sub_questions, response.search_keywords
