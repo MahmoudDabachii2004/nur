@@ -901,6 +901,43 @@ The final Phase 2 component per `docs/PHASES.md`: a user-facing terminal interfa
 
 ---
 
+### [2026-06-22T03:30:00-04:00] — Verifying BGE-reranker-v2-m3 Compatibility + Recall Gap Analysis
+* **Decision ID:** `DEC-029`
+* **Status:** Completed
+* **Author:** Antigravity (AI Peer Engineer)
+
+#### 1. Context & Motivation
+Phase 3 requires the `bge-reranker-v2-m3` cross-encoder reranker. Before writing the module, the agent needed to verify: (1) the model downloads and loads, (2) the `compute_score` API works, (3) the scores are meaningful for Islamic-text relevance, (4) the sigmoid normalization gives 0-1 scores for the abstention threshold (0.35 from the architecture doc). Additionally, the user identified a critical recall problem: the Phase 2 retriever was missing key verses (Quran 2:43, 4:103, Bukhari #8) for the "Is prayer obligatory?" query — meaning reranking 30 chunks cannot recover them.
+
+#### 2. Before vs. After
+* **Before:**
+  * Reranker not installed. Unknown if it works with the installed `FlagEmbedding==1.4.0` + `transformers==5.12.1`.
+  * Recall gap unmeasured — the agent assumed RRF top-30 contained the relevant chunks.
+  * Abstention threshold (0.35) was theoretical — unknown if scores land in that range.
+* **After:**
+  * **Compatibility fix**: `transformers==5.12.1` broke `FlagEmbedding==1.4.0` (the `prepare_for_model` method was removed in transformers 5.x). Downgraded to `transformers==4.57.6` — both BGE-M3 and the reranker now work. This is a real version-pin requirement: `transformers>=4.44,<5.0`.
+  * **Reranker verified working**: tested 5 chunk pairs against "Is prayer obligatory?". Results:
+    - "prayer = 2nd pillar obligatory" → raw +7.43 / sigmoid **0.993** (most relevant)
+    - "prayer = pillar" → raw +3.12 / sigmoid ~0.96
+    - "Friday prayer abandonment" → raw -5.39 / sigmoid ~0.005 (tangential — exactly the hadith S5 that caused the Phase 2 quality issue!)
+    - "charity", "fasting" → raw -6.x / sigmoid ~0.00002 (off-topic)
+  * **Normalization confirmed**: `compute_score(pairs, normalize=True)` applies sigmoid internally, giving scores in [0, 1]. The 0.35 abstention threshold from the architecture doc is directly applicable.
+  * **Recall gap confirmed**: from the user's Phase 2 test output for "Is prayer obligatory?", the retrieved chunks (S1-S10) did NOT include Quran 2:43, 4:103, or the 5-pillars hadith (Bukhari #8). The retriever missed the most direct proofs. Reranking cannot recover what the retriever never found.
+  * Created `scripts/test_recall.py` — a minimal recall audit script that prints the top 100 retrieved chunks as a flat list (no panels, no formatting) for easy copy-paste. Includes a `RECALL_CHECKS` dict listing known-correct chunks per query, so the user can immediately see if key verses appear in the results.
+
+#### 3. Impacted Files
+* [test_recall.py](file:///home/z/my-project/repos/nur/scripts/test_recall.py) — Created recall audit script with flat-list output and expected-chunk checks.
+* [PHASES.md](file:///home/z/my-project/repos/nur/docs/PHASES.md) — Phase 3 checklist expanded with concrete steps + verification status.
+
+#### 4. Validation
+* Reranker loads in 2.4s on CPU (server has no MPS/CUDA). On the user's M4 Mac with MPS, it will be faster.
+* `compute_score` with `normalize=True` returns sigmoid scores — verified with 5 test pairs.
+* The tangential hadith (Ibn Majah #1125 about Friday prayer) scores ~0.005, confirming the reranker would have filtered it out in Phase 2 if it had been in place.
+* Recall audit script imports cleanly. The user will run it on their Mac to measure actual recall for "Is prayer obligatory?" with top-100.
+* **Version pin discovered**: `transformers>=4.44,<5.0` is required for FlagEmbedding 1.4.0 compatibility. This must be added to `requirements.txt` in a future commit.
+
+---
+
 ## Future Architectural Plans
 
 ### [Phase 2] — LLM-Synthesized Contextual Retrieval via Kaggle GPUs

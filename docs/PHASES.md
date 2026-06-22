@@ -69,11 +69,13 @@ src/nur/
 
 **Goal**: Eliminate hallucination by ensuring the LLM only receives high-quality context.
 
-- [ ] Add `bge-reranker-v2-m3` cross-encoder reranker locally on M4 (MPS).
-- [ ] Pipeline: Fetch 30 chunks (from multi-query) -> Reranker scores all 30 -> Keep Top 10.
-- [ ] **Abstention Rule**: If Top 1 chunk score < 0.35, abort LLM generation. Return "Insufficient sources".
-- [ ] Implement Authenticity Weighting (Sahih +30%, Hasan +10%, Da'if -50%, Mawdu weight=0).
-- [ ] **Mawdu' Detection**: Parallel check against a negative index of fabricated hadiths.
+**Progress checklist**:
+- [ ] **Recall audit** — verify the retriever actually finds the key verses/hadiths before reranking. Test script: `scripts/test_recall.py`. Run with: `python3 scripts/test_recall.py --query "Is prayer obligatory" --top-k 100`. **In progress** — user running the audit.
+- [ ] **Reranker module** — `src/nur/retriever/reranker.py` using `bge-reranker-v2-m3` cross-encoder. Model verified working (DEC-029): distinguishes "prayer = 2nd pillar obligatory" (score 0.99) from "Friday prayer abandonment" (score ~0). Uses `normalize=True` for sigmoid scores (0-1 range). **Next after recall audit.**
+- [ ] **Pipeline integration** — retrieve top-K (K TBD based on recall audit), reranker scores all K, keep top 10. Send top 10 to Reporter (TPM limit: 10 chunks × 1,660 tokens = 16,600 tokens = 59% of Scout's 30K TPM).
+- [ ] **Abstention Rule** — if top 1 chunk score < 0.35 (sigmoid), abort LLM generation. Return "I do not have sufficient reliable sources to answer this question." (Pillar 4).
+- [ ] **Authenticity Weighting** — multiply reranker score by grade weight (Sahih ×1.3, Hasan ×1.1, Da'if ×0.5, Mawdu ×0). The `grade_weight` field is already in the hadith metadata from Phase 1 ingestion.
+- [ ] **Mawdu' Detection** — parallel check against a negative index of fabricated hadiths. Needs a data source (to research — compilations of Al-Albani's *Silsilat al-Ahadith ad-Da'ifah*, or academic datasets).
 
 **Deliverable**: Highly relevant retrieval, ethically weighted by authenticity, with mathematical abstention.
 
