@@ -95,16 +95,31 @@ def load_quran_data():
             for ayah in surah.get("ayahs", []):
                 en_lookup[(surah["number"], ayah["number"])] = ayah.get("text", "")
 
+    # Bismillah prefix to strip from ayah 1 of surahs 2-114 (except surah 9 At-Tawbah which has none)
+    # Surah 1 (Al-Fatiha) ayah 1 IS the Bismillah, so we keep it.
+    BISMILLAH_AR = "\u0628\u0650\u0633\u0652\u0645\u0650 \u0671\u0644\u0644\u0651\u064e\u0647\u0650 \u0671\u0644\u0631\u0651\u064e\u062d\u0652\u0645\u064e\u0670\u0646\u0650 \u0671\u0644\u0631\u0651\u064e\u062d\u0650\u064a\u0645\u0650"
+
     flat = []
     for surah in ar_data.get("surahs", []):
+        surah_num = surah["number"]
         for ayah in surah.get("ayahs", []):
+            ayah_num = ayah["numberInSurah"]
+            text_ar = strip_bom(ayah.get("text", ""))
+
+            # Strip Bismillah from ayah 1 of surahs 2-114 (except surah 9 At-Tawbah)
+            # It is kept in metadata.text_ar (full ground truth) but removed from embedding
+            if surah_num != 1 and surah_num != 9 and ayah_num == 1:
+                if text_ar.startswith(BISMILLAH_AR):
+                    text_ar = text_ar[len(BISMILLAH_AR):].strip()
+
             flat.append({
-                "surah": surah["number"],
-                "ayah": ayah["numberInSurah"],
+                "surah": surah_num,
+                "ayah": ayah_num,
                 "surah_name_ar": surah.get("name", ""),
                 "surah_name_en": surah.get("englishName", ""),
                 "revelation_type": surah.get("revelationType", ""),
-                "text_ar": strip_bom(ayah.get("text", "")),
+                "text_ar": text_ar,  # Cleaned for embedding
+                "text_ar_full": strip_bom(ayah.get("text", "")),  # Full Uthmani with Bismillah
             })
     return flat, en_lookup
 
@@ -159,48 +174,26 @@ def load_context_cards():
 
 
 def build_quran_embedding_text(record, text_en, prev_record, prev_en,
-                                next_record, next_en, context_card):
-    """Build embedding_text: Context Card + Word of Allah ONLY (no tafsirs)."""
-    layers = []
-
-    # Layer 1: Context Card
-    card_parts = ["[CONTEXT CARD]"]
-    if context_card:
-        fr = context_card.get("fr", {})
-        en = context_card.get("en", {})
-        ar = context_card.get("ar", {})
-        if fr:
-            card_parts.append(f"[FR] Theme: {fr.get('theme', '')}. Rule: {fr.get('rule', '')}")
-        if en:
-            card_parts.append(f"[EN] Topic: {en.get('topic', '')}. Rule: {en.get('rule', '')}")
-        if ar:
-            card_parts.append(f"[AR] Theme: {ar.get('theme', '')}")
-        all_kw = []
-        for lang in ("fr", "en", "ar"):
-            all_kw.extend(context_card.get(lang, {}).get("keywords", []))
-        if all_kw:
-            card_parts.append(f"Keywords: {', '.join(str(k) for k in all_kw)}")
-    layers.append("\n".join(card_parts))
-
-    # Layer 2: Word of Allah (PURE)
-    verse_parts = ["[WORD OF ALLAH]"]
-    verse_parts.append(
-        f"Quran {record['surah']}:{record['ayah']} | "
-        f"{record['surah_name_en']} ({record['surah_name_ar']}) | "
-        f"Revelation: {record['revelation_type']}"
-    )
-    verse_parts.append(f"Arabic: {record['text_ar']}")
+                                next_record, next_en):
+    """Build embedding_text: Verse ONLY (pure, no context card, no tafsirs).
+    The Context Card is kept in metadata for the LLM, but not in the embedding
+    to avoid diluting the verse signal."""
+    verse_parts = [
+        f"Quran {record['surah']}:{record['ayah']}",
+        f"Surah: {record['surah_name_en']} ({record['surah_name_ar']})",
+        f"Revelation: {record['revelation_type']}",
+        f"Arabic: {record['text_ar']}",
+    ]
     if text_en:
         verse_parts.append(f"English: {text_en}")
     if prev_record and prev_en and prev_record["surah"] == record["surah"]:
         prev_short = prev_en[:PREV_NEXT_MAX_CHARS] + ("..." if len(prev_en) > PREV_NEXT_MAX_CHARS else "")
-        verse_parts.append(f"Previous ({prev_record['surah']}:{prev_record['ayah']}): {prev_short}")
+        verse_parts.append(f"Previous verse ({prev_record['surah']}:{prev_record['ayah']}): {prev_short}")
     if next_record and next_en and next_record["surah"] == record["surah"]:
         next_short = next_en[:PREV_NEXT_MAX_CHARS] + ("..." if len(next_en) > PREV_NEXT_MAX_CHARS else "")
-        verse_parts.append(f"Next ({next_record['surah']}:{next_record['ayah']}): {next_short}")
-    layers.append("\n".join(verse_parts))
+        verse_parts.append(f"Next verse ({next_record['surah']}:{next_record['ayah']}): {next_short}")
 
-    return "\n\n".join(layers)
+    return "\n".join(verse_parts)
 
 
 def build_quran_chunks():
@@ -253,9 +246,9 @@ def build_quran_chunks():
 
             context_card = context_cards.get(key)
 
-            # Embedding text = Context Card + Verse ONLY (no tafsirs)
+            # Embedding text = Verse ONLY (pure, no context card to dilute signal)
             embedding_text = build_quran_embedding_text(
-                record, text_en, prev_record, prev_en, next_record, next_en, context_card
+                record, text_en, prev_record, prev_en, next_record, next_en
             )
 
             chunk = {
@@ -266,7 +259,7 @@ def build_quran_chunks():
                 "surah_name_ar": record["surah_name_ar"],
                 "surah_name_en": record["surah_name_en"],
                 "revelation_type": record["revelation_type"],
-                "text_ar": record["text_ar"],
+                "text_ar": record.get("text_ar_full", record["text_ar"]),  # Full Uthmani (with Bismillah) for LLM
                 "text_en": text_en,
                 "text_fr": "",
                 "context_card": context_card or {},
