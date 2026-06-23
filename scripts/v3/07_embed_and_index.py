@@ -116,6 +116,7 @@ def embed_and_store(collection_name: str, chunks: list[dict], model) -> None:
         output = model.encode(
             batch_docs,
             batch_size=BATCH_SIZE,
+            max_length=8192,  # FIX: default is 512 which truncates our chunks (DEC-042)
             return_dense=True,
             return_sparse=True,
             return_colbert_vecs=False,

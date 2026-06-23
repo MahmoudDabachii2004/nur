@@ -27,10 +27,49 @@ from nur.config import DATA_DIR  # noqa: E402
 
 CHROMA_DIR = DATA_DIR / "chroma_db_v3"
 
-# 5 ground-truth examples from docs/v3/08_EXAMPLES.md
+# Ground-truth examples — EN (default app language) + FR + AR
 GROUND_TRUTH = [
+    # --- EN (default) ---
     {
-        "case": 1,
+        "case": "EN-1",
+        "language": "en",
+        "question": "Why is prayer obligatory?",
+        "expected_quran_ids": ["SRC-QURAN-2-43", "SRC-QURAN-2-3", "SRC-QURAN-4-103",
+                               "SRC-QURAN-20-14", "SRC-QURAN-24-56"],
+        "expected_phase_a": "STRONG",
+    },
+    {
+        "case": "EN-2",
+        "language": "en",
+        "question": "Tell me about Ayat al-Kursi the throne of Allah",
+        "expected_quran_ids": ["SRC-QURAN-2-255"],
+        "expected_phase_a": "STRONG",
+    },
+    {
+        "case": "EN-3",
+        "language": "en",
+        "question": "Is smoking haram?",
+        "expected_quran_ids": ["SRC-QURAN-2-195", "SRC-QURAN-4-29", "SRC-QURAN-17-27",
+                               "SRC-QURAN-5-90", "SRC-QURAN-7-157"],
+        "expected_phase_a": "STRONG",
+    },
+    {
+        "case": "EN-4",
+        "language": "en",
+        "question": "Can wudu be done with well water?",
+        "expected_quran_ids": ["SRC-QURAN-5-6", "SRC-QURAN-2-222"],
+        "expected_phase_a": "STRONG",
+    },
+    {
+        "case": "EN-5",
+        "language": "en",
+        "question": "Does AI have a soul?",
+        "expected_quran_ids": ["SRC-QURAN-17-85", "SRC-QURAN-15-29"],
+        "expected_phase_a": "WEAK",
+    },
+    # --- FR ---
+    {
+        "case": "FR-1",
         "language": "fr",
         "question": "Pourquoi la prière est obligatoire ?",
         "expected_quran_ids": ["SRC-QURAN-2-43", "SRC-QURAN-2-3", "SRC-QURAN-4-103",
@@ -38,33 +77,20 @@ GROUND_TRUTH = [
         "expected_phase_a": "STRONG",
     },
     {
-        "case": 2,
-        "language": "ar",
-        "question": "معلومات عن كرسي الله",
-        "expected_quran_ids": ["SRC-QURAN-2-255"],
-        "expected_phase_a": "STRONG",
-    },
-    {
-        "case": 3,
+        "case": "FR-3",
         "language": "fr",
         "question": "Est-ce que fumer est haram ?",
         "expected_quran_ids": ["SRC-QURAN-2-195", "SRC-QURAN-4-29", "SRC-QURAN-17-27",
                                "SRC-QURAN-5-90", "SRC-QURAN-7-157"],
         "expected_phase_a": "STRONG",
     },
+    # --- AR ---
     {
-        "case": 4,
-        "language": "fr",
-        "question": "Le wudu peut-il être fait avec l'eau du puits ?",
-        "expected_quran_ids": ["SRC-QURAN-5-6", "SRC-QURAN-2-222"],
+        "case": "AR-2",
+        "language": "ar",
+        "question": "معلومات عن كرسي الله",
+        "expected_quran_ids": ["SRC-QURAN-2-255"],
         "expected_phase_a": "STRONG",
-    },
-    {
-        "case": 5,
-        "language": "fr",
-        "question": "L'IA a-t-elle une âme ?",
-        "expected_quran_ids": ["SRC-QURAN-17-85", "SRC-QURAN-15-29"],
-        "expected_phase_a": "WEAK",
     },
 ]
 
@@ -124,7 +150,7 @@ def verify_retrieval() -> bool:
     for ex in GROUND_TRUTH:
         print(f"\n  --- Case {ex['case']} ({ex['language']}): {ex['question'][:50]}... ---")
         # Encode query
-        q_emb = model.encode([ex["question"]], return_dense=True, return_sparse=False)
+        q_emb = model.encode([ex["question"]], return_dense=True, return_sparse=False, max_length=8192)
         q_dense = q_emb["dense_vecs"]
         if hasattr(q_dense, "cpu"):
             q_dense = q_dense.cpu().numpy()

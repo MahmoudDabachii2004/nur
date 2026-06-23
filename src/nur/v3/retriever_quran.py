@@ -71,7 +71,7 @@ def _load_sparse_index():
 def _encode_query(query: str) -> np.ndarray:
     """Encode user query with BGE-M3 → L2-normalized dense vector."""
     model = _load_bge_m3()
-    output = model.encode([query], return_dense=True, return_sparse=False)
+    output = model.encode([query], return_dense=True, return_sparse=False, max_length=8192)
     dense = output["dense_vecs"]
     if hasattr(dense, "cpu"):
         dense = dense.cpu().numpy()
@@ -83,7 +83,7 @@ def _encode_query(query: str) -> np.ndarray:
 def _encode_query_sparse(query: str) -> dict[int, float]:
     """Encode user query with BGE-M3 → sparse lexical weights dict."""
     model = _load_bge_m3()
-    output = model.encode([query], return_dense=False, return_sparse=True)
+    output = model.encode([query], return_dense=False, return_sparse=True, max_length=8192)
     lw = output["lexical_weights"][0]
     if not lw:
         return {}
