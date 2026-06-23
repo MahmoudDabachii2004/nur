@@ -105,6 +105,19 @@ def embed_and_store(collection_name: str, chunks: list[dict], model) -> None:
     documents = [c.get("embedding_text", "") for c in chunks]
     metadatas = [extract_metadata(c) for c in chunks]
 
+    # Pre-truncate documents that exceed BGE-M3's 8192 token limit (~28,000 chars for mixed AR/EN)
+    # This ensures NO chunk is silently truncated by the model.
+    # The full text is preserved in metadata for the LLM.
+    MAX_EMBED_CHARS = 28000  # ~7000 tokens, safe margin below 8192
+    truncated_count = 0
+    for idx in range(len(documents)):
+        if len(documents[idx]) > MAX_EMBED_CHARS:
+            # Keep the beginning (isnad + matn) and add truncation marker
+            documents[idx] = documents[idx][:MAX_EMBED_CHARS] + "\n...[truncated for embedding, full text in metadata]"
+            truncated_count += 1
+    if truncated_count > 0:
+        print(f"  [INFO] Pre-truncated {truncated_count} chunks > {MAX_EMBED_CHARS} chars for embedding (full text preserved in metadata)")
+
     sparse_data: dict[str, dict] = {}
     total = len(documents)
 
