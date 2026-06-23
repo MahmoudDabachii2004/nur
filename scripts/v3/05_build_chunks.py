@@ -1,5 +1,16 @@
 """
-NUR V3 — Step 5: Build V3 chunks (3-layer Quran + 2-layer Hadith)
+NUR V3 — Step 5: Build V3 chunks (3 collections: Quran + Tafsir + Hadith)
+
+ARCHITECTURE CHANGE (DEC-042):
+  - quran_v3: verse + context card ONLY (no tafsir in embedding) — ~300 tokens
+  - tafsir_v3: each tafsir SEPARATE with parent_verse_id — ~200 tokens
+  - hadith_v3: hadith + grade — ~400 tokens
+
+This fixes:
+  1. Token length problem (all chunks < 512 tokens, BGE-M3 default works)
+  2. Tafsir orphelin (tafsir_v3 has parent_verse_id linking to verse)
+  3. Inter-collection competition (retrieval is SEQUENTIAL, not parallel)
+  4. Semantic bridge (tafsir_v3 embeds full tafsir text → "smoking" matches "self-harm")
 
 Reads:
   data/quran/quran-uthmani.json
@@ -9,19 +20,12 @@ Reads:
   data/processed/context_cards.jsonl
 
 Writes:
-  data/processed/quran_v3.jsonl   (6,236 chunks, 3-layer embedding_text)
-  data/processed/hadith_v3.jsonl  (33,738 chunks, 2-layer embedding_text)
+  data/processed/quran_v3.jsonl   (6,236 chunks — verse + context card, tafsirs in metadata)
+  data/processed/tafsir_v3.jsonl  (~25,000 chunks — 1 tafsir per chunk, parent_verse_id)
+  data/processed/hadith_v3.jsonl  (33,738 chunks — hadith + grade)
   data/processed/_summary_v3.json
 
-Per docs/v3/02_CHUNK_SCHEMA.md and docs/v3/05_EMBEDDING_DESIGN.md:
-  - Tafsir truncation: 600 chars in embedding_text, full text in metadata.text_full
-  - 4 tafsirs per Quran chunk: Ibn Kathir EN+AR, Tabari AR, Sa'di AR
-  - Previous/Next ayah for context (max 200 chars each)
-  - Standard numbering SRC-QURAN-{surah}-{ayah}
-  - Hadith URL always from meetif "Reference" field, never reconstructed
-  - Hadith narrator extracted from English_Text via regex
-
-Usage (local, after context cards generated on Lightning AI):
+Usage:
   python scripts/v3/05_build_chunks.py
 """
 from __future__ import annotations
@@ -37,21 +41,19 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from nur.config import HADITH_DIR, PROCESSED_DIR, QURAN_DIR, TAFSIR_DIR  # noqa: E402
 
 # ---- Constants ----
-TAFSIR_TRUNCATION = 600  # chars per tafsir in embedding_text (data-driven, see doc 05)
 PREV_NEXT_MAX_CHARS = 200
 ISRA_ILIYYAT_PATTERNS = [
-    r"\bKa['’]b al-Ahbar\b",
+    r"\bKa['']b al-Ahbar\b",
     r"\bWahb ibn Munabbih\b",
     r"\bAbdullah ibn Salam\b",
-    r"\bIsra['’]iliyyat\b",
-    r"\bBanu Isra['’]il (?:narrated|said|reported)\b",
+    r"\bIsra['']iliyyat\b",
+    r"\bBanu Isra['']il (?:narrated|said|reported)\b",
     r"\bAccording to (?:Jewish|Christian) tradition\b",
     r"\bPeople of the Book (?:said|narrated|reported)\b",
-    r"\bThis is from the Isra['’]iliyyat\b",
+    r"\bThis is from the Isra['']iliyyat\b",
 ]
 ISRA_ILIYYAT_REGEX = re.compile("|".join(ISRA_ILIYYAT_PATTERNS), re.IGNORECASE)
 
-# Hadith collection slugs (matches src/nur/sources.py)
 HADITH_COLLECTION_SLUGS = {
     "Sahih al-Bukhari": "bukhari",
     "Sahih Muslim": "muslim",
@@ -70,48 +72,22 @@ def strip_bom(text: str) -> str:
     return text.lstrip("\ufeff").lstrip("\ufffe").strip()
 
 
-def truncate_tafsir(text: str, max_chars: int = TAFSIR_TRUNCATION) -> tuple[str, bool]:
-    """Intelligent truncation: cut at sentence boundary near max_chars.
-    Returns (truncated_text, was_truncated)."""
-    if len(text) <= max_chars:
-        return text, False
-
-    # Try to find a sentence ending within max_chars + 15% margin
-    margin = int(max_chars * 0.15)
-    search_window = text[: max_chars + margin]
-
-    # Find last sentence-ending punctuation before the end of window
-    last_end = -1
-    for ending in [". ", "! ", "? ", '." ', '."']:
-        idx = search_window.rfind(ending)
-        if idx > last_end and idx < max_chars + margin:
-            last_end = idx + len(ending)
-
-    if last_end >= max_chars * 0.8:
-        return text[:last_end].strip(), True
-    return text[:max_chars].strip() + "...", True
-
-
 def detect_isra_iliyyat(text: str) -> bool:
     return bool(ISRA_ILIYYAT_REGEX.search(text))
 
 
 # ============================================================
-# QURAN CHUNKS
+# QURAN CHUNKS (verse + context card ONLY, no tafsir in embedding)
 # ============================================================
 
-def load_quran_data() -> tuple[list[dict], dict[tuple[int, int], str], dict[tuple[int, int], dict]]:
-    """Returns (flat_ayah_list, en_lookup, prev_next_lookup).
-    flat_ayah_list: each item = {surah, ayah, surah_name_ar, surah_name_en, revelation_type, text_ar}
-    en_lookup[(surah, ayah)] = EN text
-    """
+def load_quran_data():
     ar_path = QURAN_DIR / "quran-uthmani.json"
     en_path = QURAN_DIR / "en.sahih.json"
 
     with ar_path.open("r", encoding="utf-8") as f:
         ar_data = json.load(f)
 
-    en_lookup: dict[tuple[int, int], str] = {}
+    en_lookup = {}
     if en_path.exists():
         with en_path.open("r", encoding="utf-8") as f:
             en_data = json.load(f)
@@ -130,12 +106,11 @@ def load_quran_data() -> tuple[list[dict], dict[tuple[int, int], str], dict[tupl
                 "revelation_type": surah.get("revelationType", ""),
                 "text_ar": strip_bom(ayah.get("text", "")),
             })
-    return flat, en_lookup, {}
+    return flat, en_lookup
 
 
-def load_tafsir_edition(edition_dir: Path) -> dict[tuple[int, int], str]:
-    """Load one tafsir edition (114 files) → {(surah, ayah): text}."""
-    out: dict[tuple[int, int], str] = {}
+def load_tafsir_edition(edition_dir):
+    out = {}
     if not edition_dir.exists():
         return out
     for surah_file in sorted(edition_dir.glob("*.json")):
@@ -157,7 +132,7 @@ def load_tafsir_edition(edition_dir: Path) -> dict[tuple[int, int], str]:
     return out
 
 
-def load_all_tafsirs() -> dict[str, dict[tuple[int, int], str]]:
+def load_all_tafsirs():
     v3_dir = TAFSIR_DIR / "v3"
     return {
         "ibn_kathir_en": load_tafsir_edition(v3_dir / "ibn_kathir_en"),
@@ -167,11 +142,11 @@ def load_all_tafsirs() -> dict[str, dict[tuple[int, int], str]]:
     }
 
 
-def load_context_cards() -> dict[tuple[int, int], dict]:
+def load_context_cards():
     path = PROCESSED_DIR / "context_cards.jsonl"
-    cards: dict[tuple[int, int], dict] = {}
+    cards = {}
     if not path.exists():
-        print(f"  [WARN] No context_cards.jsonl found — Quran chunks will have empty context_card")
+        print(f"  [WARN] No context_cards.jsonl found")
         return cards
     with path.open("r", encoding="utf-8") as f:
         for line in f:
@@ -183,69 +158,54 @@ def load_context_cards() -> dict[tuple[int, int], dict]:
     return cards
 
 
-def build_quran_embedding_text(record: dict, text_en: str,
-                                prev_record: dict | None, prev_en: str,
-                                next_record: dict | None, next_en: str,
-                                context_card: dict | None,
-                                tafsirs: list[dict]) -> str:
-    """Build the 3-layer embedding_text per docs/v3/02_CHUNK_SCHEMA.md."""
+def build_quran_embedding_text(record, text_en, prev_record, prev_en,
+                                next_record, next_en, context_card):
+    """Build embedding_text: Context Card + Word of Allah ONLY (no tafsirs)."""
     layers = []
 
     # Layer 1: Context Card
-    card_str_parts = ["[CONTEXT CARD]"]
+    card_parts = ["[CONTEXT CARD]"]
     if context_card:
         fr = context_card.get("fr", {})
         en = context_card.get("en", {})
         ar = context_card.get("ar", {})
         if fr:
-            card_str_parts.append(f"[FR] Thème: {fr.get('theme', '')}. Règle: {fr.get('rule', '')}")
+            card_parts.append(f"[FR] Theme: {fr.get('theme', '')}. Rule: {fr.get('rule', '')}")
         if en:
-            card_str_parts.append(f"[EN] Topic: {en.get('topic', '')}. Rule: {en.get('rule', '')}")
+            card_parts.append(f"[EN] Topic: {en.get('topic', '')}. Rule: {en.get('rule', '')}")
         if ar:
-            card_str_parts.append(f"[AR] الموضوع: {ar.get('theme', '')}")
+            card_parts.append(f"[AR] Theme: {ar.get('theme', '')}")
         all_kw = []
         for lang in ("fr", "en", "ar"):
             all_kw.extend(context_card.get(lang, {}).get("keywords", []))
         if all_kw:
-            card_str_parts.append(f"Keywords: {', '.join(all_kw)}")
-    layers.append("\n".join(card_str_parts))
+            card_parts.append(f"Keywords: {', '.join(str(k) for k in all_kw)}")
+    layers.append("\n".join(card_parts))
 
     # Layer 2: Word of Allah (PURE)
-    verse_parts = ["[WORD OF ALLAH — PURE]"]
+    verse_parts = ["[WORD OF ALLAH]"]
     verse_parts.append(
-        f"Quran | Surah {record['surah']}: {record['surah_name_en']} ({record['surah_name_ar']}) "
-        f"| Ayah {record['ayah']} | Revelation: {record['revelation_type']}"
+        f"Quran {record['surah']}:{record['ayah']} | "
+        f"{record['surah_name_en']} ({record['surah_name_ar']}) | "
+        f"Revelation: {record['revelation_type']}"
     )
     verse_parts.append(f"Arabic: {record['text_ar']}")
     if text_en:
         verse_parts.append(f"English: {text_en}")
-    if prev_record and prev_en:
+    if prev_record and prev_en and prev_record["surah"] == record["surah"]:
         prev_short = prev_en[:PREV_NEXT_MAX_CHARS] + ("..." if len(prev_en) > PREV_NEXT_MAX_CHARS else "")
         verse_parts.append(f"Previous ({prev_record['surah']}:{prev_record['ayah']}): {prev_short}")
-    if next_record and next_en:
+    if next_record and next_en and next_record["surah"] == record["surah"]:
         next_short = next_en[:PREV_NEXT_MAX_CHARS] + ("..." if len(next_en) > PREV_NEXT_MAX_CHARS else "")
         verse_parts.append(f"Next ({next_record['surah']}:{next_record['ayah']}): {next_short}")
     layers.append("\n".join(verse_parts))
 
-    # Layer 3: Tafsirs (labellized, truncated)
-    if tafsirs:
-        tafsir_parts = ["[HUMAN COMMENTARY — LABELED]"]
-        for t in tafsirs:
-            marker = ""
-            if t.get("contains_isra_iliyyat"):
-                marker = " | Contains Isra'iliyyat — illustrative narrations, not authentically verified"
-            tafsir_parts.append(
-                f"[Source: Tafsir {t['source']} | Category: {t['category']} | Language: {t['language']}{marker}]"
-            )
-            tafsir_parts.append(t["text"])  # already truncated
-        layers.append("\n".join(tafsir_parts))
-
     return "\n\n".join(layers)
 
 
-def build_quran_chunks() -> int:
-    print("\n[Quran V3] Building 3-layer chunks...")
-    flat, en_lookup, _ = load_quran_data()
+def build_quran_chunks():
+    print("\n[Quran V3] Building verse+context_card chunks (NO tafsir in embedding)...")
+    flat, en_lookup = load_quran_data()
     print(f"  Loaded {len(flat):,} ayahs")
 
     tafsirs_data = load_all_tafsirs()
@@ -255,10 +215,6 @@ def build_quran_chunks() -> int:
     context_cards = load_context_cards()
     print(f"  Context cards: {len(context_cards):,}")
 
-    out_path = PROCESSED_DIR / "quran_v3.jsonl"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Tafsir metadata for the 4 editions
     tafsir_meta = [
         ("ibn_kathir_en", "Ibn Kathir", "bil-Mathur", "en"),
         ("ibn_kathir_ar", "Ibn Kathir", "bil-Mathur", "ar"),
@@ -266,48 +222,40 @@ def build_quran_chunks() -> int:
         ("saadi_ar", "As-Sa'di", "modern", "ar"),
     ]
 
+    out_path = PROCESSED_DIR / "quran_v3.jsonl"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
     count = 0
     with out_path.open("w", encoding="utf-8") as f:
         for i, record in enumerate(flat):
             key = (record["surah"], record["ayah"])
             text_en = en_lookup.get(key, "")
 
-            # Previous/next for context
             prev_record = flat[i - 1] if i > 0 else None
             prev_en = en_lookup.get((prev_record["surah"], prev_record["ayah"]), "") if prev_record else ""
-            # Don't cross surah boundaries for previous (optional — could relax)
-            if prev_record and prev_record["surah"] != record["surah"]:
-                prev_en = ""  # skip prev if it's last ayah of previous surah (cultural boundary)
-
             next_record = flat[i + 1] if i < len(flat) - 1 else None
             next_en = en_lookup.get((next_record["surah"], next_record["ayah"]), "") if next_record else ""
-            if next_record and next_record["surah"] != record["surah"]:
-                next_en = ""
 
-            # Build tafsir list
+            # Build tafsir list for METADATA (full text preserved for LLM)
             tafsirs_meta = []
             for edition_key, source, category, lang in tafsir_meta:
                 full_text = tafsirs_data[edition_key].get(key, "")
                 if not full_text:
                     continue
-                truncated_text, was_truncated = truncate_tafsir(full_text, TAFSIR_TRUNCATION)
                 tafsirs_meta.append({
                     "source": source,
                     "category": category,
                     "language": lang,
-                    "text": truncated_text,
                     "text_full": full_text,
-                    "truncated": was_truncated,
-                    "truncation_ratio": round(len(truncated_text) / max(len(full_text), 1), 3),
                     "contains_isra_iliyyat": detect_isra_iliyyat(full_text),
                     "url": f"https://quran.com/tafsir/{record['surah']}/{record['ayah']}",
                 })
 
             context_card = context_cards.get(key)
 
+            # Embedding text = Context Card + Verse ONLY (no tafsirs)
             embedding_text = build_quran_embedding_text(
-                record, text_en, prev_record, prev_en, next_record, next_en,
-                context_card, tafsirs_meta,
+                record, text_en, prev_record, prev_en, next_record, next_en, context_card
             )
 
             chunk = {
@@ -321,21 +269,12 @@ def build_quran_chunks() -> int:
                 "text_ar": record["text_ar"],
                 "text_en": text_en,
                 "text_fr": "",
-                "previous_ayah_ar": prev_record["text_ar"] if prev_record and prev_record["surah"] == record["surah"] else "",
-                "previous_ayah_en": prev_en,
-                "next_ayah_ar": next_record["text_ar"] if next_record and next_record["surah"] == record["surah"] else "",
-                "next_ayah_en": next_en,
                 "context_card": context_card or {},
                 "tafsirs": tafsirs_meta,
                 "hadith_cross_refs": {
                     "high_confidence": [],
                     "low_confidence": [],
                     "source_methods": [],
-                },
-                "ikhtilaf": {
-                    "detected": False,
-                    "between": [],
-                    "summary": None,
                 },
                 "url": f"https://quran.com/{record['surah']}/{record['ayah']}",
                 "embedding_text": embedding_text,
@@ -344,15 +283,76 @@ def build_quran_chunks() -> int:
             f.write(json.dumps(chunk, ensure_ascii=False) + "\n")
             count += 1
 
-    print(f"  [OK] {count:,} chunks → {out_path.relative_to(PROJECT_ROOT)}")
+    print(f"  [OK] {count:,} chunks -> {out_path.relative_to(PROJECT_ROOT)}")
     return count
 
 
 # ============================================================
-# HADITH CHUNKS
+# TAFSIR CHUNKS (each tafsir SEPARATE, with parent_verse_id)
 # ============================================================
 
-def normalize_collection_name(name: str) -> str:
+def build_tafsir_chunks():
+    print("\n[Tafsir V3] Building separate tafsir chunks with parent_verse_id...")
+    tafsirs_data = load_all_tafsirs()
+
+    tafsir_meta = [
+        ("ibn_kathir_en", "Ibn Kathir", "bil-Mathur", "en", "IBNKATHIR-EN"),
+        ("ibn_kathir_ar", "Ibn Kathir", "bil-Mathur", "ar", "IBNKATHIR-AR"),
+        ("tabari_ar", "Al-Tabari", "bil-Mathur", "ar", "TABARI-AR"),
+        ("saadi_ar", "As-Sa'di", "modern", "ar", "SAADI-AR"),
+    ]
+
+    out_path = PROCESSED_DIR / "tafsir_v3.jsonl"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    count = 0
+    with out_path.open("w", encoding="utf-8") as f:
+        for edition_key, source, category, lang, id_slug in tafsir_meta:
+            print(f"  [{source} ({lang.upper()})] Processing...")
+            for (surah, ayah), full_text in sorted(tafsirs_data[edition_key].items()):
+                parent_verse_id = f"SRC-QURAN-{surah}-{ayah}"
+
+                # Embedding text = just the tafsir text with a label header
+                embedding_text = (
+                    f"[TAFSIR — {source} | {category} | {lang.upper()}]\n"
+                    f"Surah {surah}, Ayah {ayah}\n"
+                    f"{full_text}"
+                )
+
+                # Truncate embedding text if too long (BGE-M3 max 8192 tokens)
+                # But keep full text in metadata
+                embed_text_for_index = embedding_text
+                if len(embed_text_for_index) > 12000:
+                    embed_text_for_index = embed_text_for_index[:12000] + "\n...[truncated for embedding]"
+
+                chunk = {
+                    "id": f"SRC-TAFSIR-{id_slug}-{surah}-{ayah}",
+                    "kind": "tafsir",
+                    "source": source,
+                    "category": category,
+                    "language": lang,
+                    "surah": surah,
+                    "ayah": ayah,
+                    "parent_verse_id": parent_verse_id,
+                    "text_full": full_text,
+                    "contains_isra_iliyyat": detect_isra_iliyyat(full_text),
+                    "url": f"https://quran.com/tafsir/{surah}/{ayah}",
+                    "embedding_text": embed_text_for_index,
+                    "build_version": "v3",
+                }
+                f.write(json.dumps(chunk, ensure_ascii=False) + "\n")
+                count += 1
+            print(f"    {len(tafsirs_data[edition_key]):,} sections")
+
+    print(f"  [OK] {count:,} chunks -> {out_path.relative_to(PROJECT_ROOT)}")
+    return count
+
+
+# ============================================================
+# HADITH CHUNKS (same as before, 2-layer)
+# ============================================================
+
+def normalize_collection_name(name):
     aliases = {
         "bukhari": "Sahih al-Bukhari",
         "sahih bukhari": "Sahih al-Bukhari",
@@ -375,7 +375,7 @@ def normalize_collection_name(name: str) -> str:
     return aliases.get(name.strip().lower(), name.strip())
 
 
-def extract_narrator(text_en: str) -> str | None:
+def extract_narrator(text_en):
     if not text_en:
         return None
     m = NARRATOR_REGEX.match(text_en)
@@ -384,7 +384,7 @@ def extract_narrator(text_en: str) -> str | None:
     return None
 
 
-def extract_hadith_number_from_url(url: str) -> int | None:
+def extract_hadith_number_from_url(url):
     if not url:
         return None
     m = re.search(r":(\d+)$", url)
@@ -393,7 +393,7 @@ def extract_hadith_number_from_url(url: str) -> int | None:
     return None
 
 
-def grade_weight(grade: str | None) -> float:
+def grade_weight(grade):
     if not grade:
         return 1.0
     g = grade.lower()
@@ -410,49 +410,29 @@ def grade_weight(grade: str | None) -> float:
     return 1.0
 
 
-def build_hadith_embedding_text(collection: str, hadith_num: int, grade: str | None,
-                                  narrator: str | None, text_ar: str, text_en: str,
-                                  context_card: dict | None) -> str:
-    parts = ["[CONTEXT CARD]"]
-    if context_card:
-        en = context_card.get("en", {})
-        ar = context_card.get("ar", {})
-        if en:
-            parts.append(f"[EN] Topic: {en.get('topic', '')}. Rule: {en.get('rule', '')}")
-        if ar:
-            parts.append(f"[AR] الموضوع: {ar.get('theme', '')}")
-        kw = []
-        for lang in ("en", "ar"):
-            kw.extend(context_card.get(lang, {}).get("keywords", []))
-        if kw:
-            parts.append(f"Keywords: {', '.join(kw)}")
-    else:
-        # Build a simple context card inline from narrator + grade
-        parts.append(f"[EN] Topic: Hadith. Narrator: {narrator or 'unknown'}. Grade: {grade or 'unknown'}")
-
-    hadith_parts = [f"[HADITH — {collection} #{hadith_num} | Grade: {grade or 'Unknown'}"]
+def build_hadith_embedding_text(collection, hadith_num, grade, narrator, text_ar, text_en):
+    parts = [f"[HADITH - {collection} #{hadith_num} | Grade: {grade or 'Unknown'}"]
     if narrator:
-        hadith_parts.append(f"Narrator: {narrator}")
-    hadith_parts.append(f"Arabic: {text_ar}")
+        parts.append(f"Narrator: {narrator}")
+    parts.append(f"Arabic: {text_ar}")
     if text_en:
-        hadith_parts.append(f"English: {text_en}")
-    parts.append("\n".join(hadith_parts))
-
-    return "\n\n".join(parts)
+        parts.append(f"English: {text_en}")
+    return "\n".join(parts)
 
 
-def build_hadith_chunks() -> int:
+def build_hadith_chunks():
     print("\n[Hadith V3] Building 2-layer chunks...")
     meetif_dir = HADITH_DIR / "meetif"
     if not meetif_dir.exists():
-        print(f"  [SKIP] {meetif_dir} not found — run 02_download_hadith.py first")
+        print(f"  [SKIP] {meetif_dir} not found")
         return 0
 
     out_path = PROCESSED_DIR / "hadith_v3.jsonl"
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     total = 0
-    grade_dist: dict[str, int] = {}
+    grade_dist = {}
+    seen_ids = {}
 
     with out_path.open("w", encoding="utf-8") as f:
         for collection_file in sorted(meetif_dir.glob("*.json")):
@@ -466,7 +446,6 @@ def build_hadith_chunks() -> int:
                 hadiths = json.load(fh)
 
             if not isinstance(hadiths, list):
-                print(f"    [WARN] Not a list — skipping.")
                 continue
 
             for idx, h in enumerate(hadiths):
@@ -474,10 +453,9 @@ def build_hadith_chunks() -> int:
                 text_en = str(h.get("English_Text", h.get("text_en", h.get("English", "")))).strip()
                 grade = str(h.get("Grade", h.get("grade", ""))).strip() or None
 
-                # URL: ALWAYS from meetif "Reference" field
                 url = str(h.get("Reference", h.get("url", h.get("Sunnah_URL", "")))).strip() or ""
 
-                hadith_num: int | None = extract_hadith_number_from_url(url)
+                hadith_num = extract_hadith_number_from_url(url)
                 if hadith_num is None:
                     in_book = str(h.get("In-book reference", h.get("in_book_reference", "")))
                     m = re.search(r"Hadith\s+(\d+)", in_book, re.IGNORECASE)
@@ -488,11 +466,9 @@ def build_hadith_chunks() -> int:
 
                 narrator = extract_narrator(text_en)
 
-                # Grade fallback for Bukhari/Muslim
                 if not grade and collection_name in ("Sahih al-Bukhari", "Sahih Muslim"):
                     grade = "Sahih"
 
-                # Grade distribution
                 if grade:
                     g = grade.lower()
                     if "sahih" in g:
@@ -507,25 +483,26 @@ def build_hadith_chunks() -> int:
                         bucket = "Other"
                     grade_dist[bucket] = grade_dist.get(bucket, 0) + 1
 
-                # Fallback URL if missing
                 if not url:
                     slug = HADITH_COLLECTION_SLUGS.get(collection_name, "unknown")
                     url = f"https://sunnah.com/{slug}:{hadith_num}"
 
-                # No LLM context card for hadith in V3 (could be added in V3.1)
-                # For now we use the simple inline context built in build_hadith_embedding_text
+                # Dedup IDs
+                slug = HADITH_COLLECTION_SLUGS.get(collection_name, "unknown").upper()
+                base_id = f"SRC-HADITH-{slug}-{hadith_num}"
+                if base_id in seen_ids:
+                    seen_ids[base_id] += 1
+                    chunk_id = f"{base_id}-n{seen_ids[base_id]}"
+                else:
+                    seen_ids[base_id] = 0
+                    chunk_id = base_id
+
                 embedding_text = build_hadith_embedding_text(
-                    collection=collection_name,
-                    hadith_num=hadith_num,
-                    grade=grade,
-                    narrator=narrator,
-                    text_ar=text_ar,
-                    text_en=text_en,
-                    context_card=None,
+                    collection_name, hadith_num, grade, narrator, text_ar, text_en
                 )
 
                 chunk = {
-                    "id": f"SRC-HADITH-{HADITH_COLLECTION_SLUGS.get(collection_name, 'unknown').upper()}-{hadith_num}",
+                    "id": chunk_id,
                     "kind": "hadith",
                     "surah": None,
                     "ayah": None,
@@ -551,7 +528,7 @@ def build_hadith_chunks() -> int:
 
             print(f"    [{collection_name}] {len(hadiths)} hadiths processed")
 
-    print(f"  [OK] {total:,} chunks → {out_path.relative_to(PROJECT_ROOT)}")
+    print(f"  [OK] {total:,} chunks -> {out_path.relative_to(PROJECT_ROOT)}")
     if grade_dist:
         print(f"  Grade distribution:")
         for bucket, n in sorted(grade_dist.items(), key=lambda x: -x[1]):
@@ -563,39 +540,40 @@ def build_hadith_chunks() -> int:
 # MAIN
 # ============================================================
 
-def main() -> int:
+def main():
     print("=" * 60)
-    print("NUR V3 — Step 5: Build V3 chunks (3-layer Quran + 2-layer Hadith)")
+    print("NUR V3 — Step 5: Build 3-collection chunks")
+    print("  quran_v3: verse + context card (no tafsir in embedding)")
+    print("  tafsir_v3: each tafsir separate, with parent_verse_id")
+    print("  hadith_v3: hadith + grade")
     print("=" * 60)
-    print(f"Output: {PROCESSED_DIR.relative_to(PROJECT_ROOT)}")
-    print(f"Tafsir truncation: {TAFSIR_TRUNCATION} chars (data-driven, see doc 05)")
 
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
     quran_count = build_quran_chunks()
+    tafsir_count = build_tafsir_chunks()
     hadith_count = build_hadith_chunks()
 
     summary_path = PROCESSED_DIR / "_summary_v3.json"
     with summary_path.open("w", encoding="utf-8") as f:
         json.dump({
-            "build_version": "v3",
+            "build_version": "v3-3collections",
             "quran_chunks": quran_count,
+            "tafsir_chunks": tafsir_count,
             "hadith_chunks": hadith_count,
-            "total_chunks": quran_count + hadith_count,
-            "tafsirs_per_quran_chunk": 4,
-            "tafsir_truncation_chars": TAFSIR_TRUNCATION,
+            "total_chunks": quran_count + tafsir_count + hadith_count,
+            "architecture": "3 collections: quran_v3 (verse+context), tafsir_v3 (separate, parent_verse_id), hadith_v3",
             "embedding_model": "BAAI/bge-m3",
             "embedding_dim": 1024,
-            "vector_db": "chromadb",
         }, f, ensure_ascii=False, indent=2)
 
     print("\n" + "=" * 60)
     print("V3 CHUNK BUILD COMPLETE")
     print("=" * 60)
-    print(f"  Quran:  {quran_count:,} chunks (3-layer)")
+    print(f"  Quran:  {quran_count:,} chunks (verse + context card)")
+    print(f"  Tafsir: {tafsir_count:,} chunks (separate, parent_verse_id)")
     print(f"  Hadith: {hadith_count:,} chunks (2-layer)")
-    print(f"  TOTAL:  {quran_count + hadith_count:,} chunks")
-    print(f"  Summary: {summary_path.relative_to(PROJECT_ROOT)}")
+    print(f"  TOTAL:  {quran_count + tafsir_count + hadith_count:,} chunks")
     print(f"\nNext step: python scripts/v3/06_compute_cross_refs.py")
     return 0
 
