@@ -93,7 +93,7 @@ def load_quran_data():
             en_data = json.load(f)
         for surah in en_data.get("surahs", []):
             for ayah in surah.get("ayahs", []):
-                en_lookup[(surah["number"], ayah["number"])] = ayah.get("text", "")
+                en_lookup[(surah["number"], ayah["numberInSurah"])] = ayah.get("text", "")
 
     # Bismillah prefix to strip from ayah 1 of surahs 2-114 (except surah 9 At-Tawbah which has none)
     # Surah 1 (Al-Fatiha) ayah 1 IS the Bismillah, so we keep it.
