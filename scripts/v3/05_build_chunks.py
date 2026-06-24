@@ -232,8 +232,10 @@ def load_all_tafsirs():
     return {
         "ibn_kathir_en": load_tafsir_edition(v3_dir / "ibn_kathir_en"),
         "ibn_kathir_ar": load_tafsir_edition(v3_dir / "ibn_kathir_ar"),
-        "tabari_ar": load_tafsir_edition(v3_dir / "tabari_ar"),
-        "saadi_ar": load_tafsir_edition(v3_dir / "saadi_ar"),
+        "jalalayn_en": load_tafsir_edition(v3_dir / "jalalayn_en"),
+        "jalalayn_ar": load_tafsir_edition(v3_dir / "jalalayn_ar"),
+        "mukhtasar_en": load_tafsir_edition(v3_dir / "mukhtasar_en"),
+        "mukhtasar_ar": load_tafsir_edition(v3_dir / "mukhtasar_ar"),
     }
 
 
@@ -266,8 +268,10 @@ def build_quran_chunks():
     tafsir_meta = [
         ("ibn_kathir_en", "Ibn Kathir", "bil-Mathur", "en"),
         ("ibn_kathir_ar", "Ibn Kathir", "bil-Mathur", "ar"),
-        ("tabari_ar", "Al-Tabari", "bil-Mathur", "ar"),
-        ("saadi_ar", "As-Sa'di", "modern", "ar"),
+        ("jalalayn_en", "Al-Jalalayn", "classical", "en"),
+        ("jalalayn_ar", "Al-Jalalayn", "classical", "ar"),
+        ("mukhtasar_en", "Al-Mukhtasar", "modern", "en"),
+        ("mukhtasar_ar", "Al-Mukhtasar", "modern", "ar"),
     ]
 
     out_path = PROCESSED_DIR / "quran_v3.jsonl"
@@ -368,8 +372,10 @@ def build_tafsir_chunks():
     tafsir_meta = [
         ("ibn_kathir_en", "Ibn Kathir", "bil-Mathur", "en", "IBNKATHIR-EN"),
         ("ibn_kathir_ar", "Ibn Kathir", "bil-Mathur", "ar", "IBNKATHIR-AR"),
-        ("tabari_ar", "Al-Tabari", "bil-Mathur", "ar", "TABARI-AR"),
-        ("saadi_ar", "As-Sa'di", "modern", "ar", "SAADI-AR"),
+        ("jalalayn_en", "Al-Jalalayn", "classical", "en", "JALALAYN-EN"),
+        ("jalalayn_ar", "Al-Jalalayn", "classical", "ar", "JALALAYN-AR"),
+        ("mukhtasar_en", "Al-Mukhtasar", "modern", "en", "MUKHTASAR-EN"),
+        ("mukhtasar_ar", "Al-Mukhtasar", "modern", "ar", "MUKHTASAR-AR"),
     ]
 
     out_path = PROCESSED_DIR / "tafsir_v3.jsonl"
