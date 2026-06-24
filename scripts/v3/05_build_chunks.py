@@ -173,27 +173,49 @@ def load_context_cards():
     return cards
 
 
-def build_quran_embedding_text(record, text_en, prev_record, prev_en,
-                                next_record, next_en):
-    """Build embedding_text: Verse ONLY (pure, no context card, no tafsirs).
-    The Context Card is kept in metadata for the LLM, but not in the embedding
-    to avoid diluting the verse signal."""
-    verse_parts = [
-        f"Quran {record['surah']}:{record['ayah']}",
-        f"Surah: {record['surah_name_en']} ({record['surah_name_ar']})",
-        f"Revelation: {record['revelation_type']}",
-        f"Arabic: {record['text_ar']}",
-    ]
-    if text_en:
-        verse_parts.append(f"English: {text_en}")
-    if prev_record and prev_en and prev_record["surah"] == record["surah"]:
-        prev_short = prev_en[:PREV_NEXT_MAX_CHARS] + ("..." if len(prev_en) > PREV_NEXT_MAX_CHARS else "")
-        verse_parts.append(f"Previous verse ({prev_record['surah']}:{prev_record['ayah']}): {prev_short}")
-    if next_record and next_en and next_record["surah"] == record["surah"]:
-        next_short = next_en[:PREV_NEXT_MAX_CHARS] + ("..." if len(next_en) > PREV_NEXT_MAX_CHARS else "")
-        verse_parts.append(f"Next verse ({next_record['surah']}:{next_record['ayah']}): {next_short}")
+# ============================================================
+# SMALL-TO-BIG ARCHITECTURE (Parent-Child Chunking)
+# ============================================================
+# For the Quran, we use the Small-to-Big pattern WITHOUT cutting the verse:
+#
+#   CHILD (embedding_text) = PURE verse text (AR + EN only)
+#     - This is what BGE-M3 sees for retrieval
+#     - Ultra-pure, ultra-short, zero dilution
+#     - Just the Arabic + English, nothing else
+#
+#   PARENT (metadata) = Full context for LLM and Reranker
+#     - text_ar_full (Uthmani with Bismillah)
+#     - text_en (Saheeh International)
+#     - context_card (FR/EN/AR keywords)
+#     - tafsirs (4 full tafsirs)
+#     - prev/next verses
+#     - surah metadata
+#
+# The verse is NEVER cut. We just isolate its pure text for retrieval,
+# then give the full parent chunk to the LLM for generation.
+# This respects Pillar 1 (1 ayah = 1 chunk) while maximizing retrieval precision.
+# ============================================================
 
-    return "\n".join(verse_parts)
+def build_quran_embedding_text_pure(text_ar, text_en):
+    """Build embedding_text: PURE verse text only (no headers, no prev/next).
+    
+    This is the CHILD chunk for Small-to-Big retrieval.
+    BGE-M3 sees ONLY the Arabic + English verse text.
+    Zero dilution from metadata, headers, or context cards.
+    
+    Args:
+        text_ar: Arabic verse text (Bismillah already stripped for surahs 2-114)
+        text_en: English translation (Saheeh International)
+    
+    Returns:
+        Pure verse text for embedding (e.g. "Arabic: وَأَقِيمُوا۟ ٱلصَّلَوٰةَ...\nEnglish: And establish prayer and give zakah...")
+    """
+    parts = []
+    if text_ar:
+        parts.append(f"Arabic: {text_ar}")
+    if text_en:
+        parts.append(f"English: {text_en}")
+    return "\n".join(parts) if parts else ""
 
 
 def build_quran_chunks():
@@ -246,10 +268,35 @@ def build_quran_chunks():
 
             context_card = context_cards.get(key)
 
-            # Embedding text = Verse ONLY (pure, no context card to dilute signal)
-            embedding_text = build_quran_embedding_text(
-                record, text_en, prev_record, prev_en, next_record, next_en
-            )
+            # ============================================================
+            # SMALL-TO-BIG: Child = pure verse, Parent = full context
+            # ============================================================
+            #
+            # CHILD (embedding_text): Pure AR + EN verse text ONLY.
+            #   - No headers ("Quran 2:43", "Surah: Al-Baqarah", etc.)
+            #   - No prev/next verses
+            #   - No context card keywords
+            #   - Just the raw Arabic + English text of the verse
+            #   - This maximizes BGE-M3 retrieval precision
+            #
+            # PARENT (metadata): Everything the LLM and Reranker need.
+            #   - text_ar = Full Uthmani WITH Bismillah (ground truth for char verification)
+            #   - text_en = Saheeh International
+            #   - context_card = FR/EN/AR keywords for cross-lingual bridge
+            #   - tafsirs = 4 full tafsirs (Ibn Kathir EN+AR, Tabari, Sa'di)
+            #   - prev/next verses (for LLM context)
+            #   - surah metadata (name, revelation type, etc.)
+
+            # Build CHILD embedding (pure verse only)
+            # text_ar here is already Bismillah-stripped (for embedding)
+            # text_ar_full in metadata has the original Uthmani (for LLM + verification)
+            embedding_text = build_quran_embedding_text_pure(record["text_ar"], text_en)
+
+            # Build PARENT metadata (full context for LLM)
+            prev_ayah_ar = prev_record.get("text_ar_full", prev_record.get("text_ar", "")) if prev_record and prev_record["surah"] == record["surah"] else ""
+            prev_ayah_en = prev_en if prev_record and prev_record["surah"] == record["surah"] else ""
+            next_ayah_ar = next_record.get("text_ar_full", next_record.get("text_ar", "")) if next_record and next_record["surah"] == record["surah"] else ""
+            next_ayah_en = next_en if next_record and next_record["surah"] == record["surah"] else ""
 
             chunk = {
                 "id": f"SRC-QURAN-{record['surah']}-{record['ayah']}",
@@ -259,19 +306,29 @@ def build_quran_chunks():
                 "surah_name_ar": record["surah_name_ar"],
                 "surah_name_en": record["surah_name_en"],
                 "revelation_type": record["revelation_type"],
-                "text_ar": record.get("text_ar_full", record["text_ar"]),  # Full Uthmani (with Bismillah) for LLM
+                # PARENT: Full Uthmani text WITH Bismillah (for LLM + char verification)
+                "text_ar": record.get("text_ar_full", record["text_ar"]),
                 "text_en": text_en,
                 "text_fr": "",
+                # PARENT: Previous/Next verses (for LLM context)
+                "previous_ayah_ar": prev_ayah_ar,
+                "previous_ayah_en": prev_ayah_en,
+                "next_ayah_ar": next_ayah_ar,
+                "next_ayah_en": next_ayah_en,
+                # PARENT: Context Card (FR/EN/AR keywords for cross-lingual)
                 "context_card": context_card or {},
+                # PARENT: Full tafsirs (4 editions, full text for LLM)
                 "tafsirs": tafsirs_meta,
+                # Cross-refs
                 "hadith_cross_refs": {
                     "high_confidence": [],
                     "low_confidence": [],
                     "source_methods": [],
                 },
                 "url": f"https://quran.com/{record['surah']}/{record['ayah']}",
+                # CHILD: Pure verse text for BGE-M3 embedding
                 "embedding_text": embedding_text,
-                "build_version": "v3",
+                "build_version": "v3-small-to-big",
             }
             f.write(json.dumps(chunk, ensure_ascii=False) + "\n")
             count += 1
