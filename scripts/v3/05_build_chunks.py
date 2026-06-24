@@ -548,7 +548,10 @@ def build_hadith_chunks():
                     elif "mawdu" in g or "munkar" in g:
                         bucket = "Mawdu/Munkar"
                     else:
-                        bucket = "Other"
+                        # FAIL-SAFE: If grade exists but is unrecognized, treat as Da'if (weak)
+                        # to ensure theological safety. Never label as "Other".
+                        bucket = "Da'if (Ungraded)"
+                        grade = f"Da'if (Ungraded - Original: {grade})"
                     grade_dist[bucket] = grade_dist.get(bucket, 0) + 1
 
                 if not url:
