@@ -1,18 +1,15 @@
 """
-NUR V3 — Step 6: Compute Quran → Hadith cross-references
+NUR V3 — Step 6: Compute cross-references (Quran → Hadith + Tafsir → Hadith)
 
-For each Quran chunk, parses its 4 tafsirs (Ibn Kathir EN + AR, Tabari, Sa'di)
-and extracts hadith citations (e.g. "It is reported in Bukhari that... #1234").
+Parses tafsir text in BOTH quran_v3.jsonl and tafsir_v3.jsonl to extract
+hadith citations (e.g. "It is reported in Bukhari that... #1234").
 
-Updates data/processed/quran_v3.jsonl in-place by populating:
+Updates both files in-place by populating:
   chunk["hadith_cross_refs"]["high_confidence"] = [list of SRC-HADITH-...]
   chunk["hadith_cross_refs"]["source_methods"] = ["tafsir_parsing"]
 
-Then validates each ref against data/processed/hadith_v3.jsonl IDs to ensure
-we only reference hadiths that actually exist in our DB.
-
-Usage (local):
-  python scripts/v3/06_compute_cross_refs.py
+Usage:
+  python3 scripts/v3/06_compute_cross_refs.py
 """
 from __future__ import annotations
 
@@ -27,42 +24,28 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from nur.config import PROCESSED_DIR  # noqa: E402
 
 QURAN_V3_PATH = PROCESSED_DIR / "quran_v3.jsonl"
+TAFSIR_V3_PATH = PROCESSED_DIR / "tafsir_v3.jsonl"
 HADITH_V3_PATH = PROCESSED_DIR / "hadith_v3.jsonl"
-OUTPUT_PATH = PROCESSED_DIR / "quran_v3.jsonl"  # update in-place
 
 # Patterns: match "Bukhari 123", "Sahih Muslim #456", "Abu Dawud 789", etc.
-# Tafsirs cite collections in many ways:
-#   - "It is reported in Bukhari 1234" → Bukhari + number
-#   - "Al-Bukhari recorded that..." → Bukhari, no number (skip, can't link without num)
-#   - "The Two Sahihs recorded" → skip (ambiguous)
-#   - "Sahih Muslim #456" → Muslim + number
-#   - "In Hadith number 1234" → skip (no collection)
-# We require BOTH collection name AND number in proximity (within 80 chars).
 COLLECTION_PATTERNS = [
-    # (regex with capture group for number, slug)
-    # Bukhari: "Bukhari 1234", "al-Bukhari 1234", "Sahih Bukhari 1234", "Bukhari recorded in book 1234"
     (re.compile(
-        r"\b(?:Sahih\s+)?(?:al[-\s])?Bukhari['’]?(?:s)?\b[^#\d]{0,80}#?(\d{1,5})\b",
+        r"\b(?:Sahih\s+)?(?:al[-\s])?Bukhari['']?(?:s)?\b[^#\d]{0,80}#?(\d{1,5})\b",
         re.IGNORECASE), "BUKHARI"),
-    # Muslim: "Muslim 1234", "Sahih Muslim 1234"
     (re.compile(
-        r"\b(?:Sahih\s+)?Muslim['’]?(?:s)?\b[^#\d]{0,80}#?(\d{1,5})\b",
+        r"\b(?:Sahih\s+)?Muslim['']?(?:s)?\b[^#\d]{0,80}#?(\d{1,5})\b",
         re.IGNORECASE), "MUSLIM"),
-    # Abi Dawud / Abu Dawud
     (re.compile(
-        r"\b(?:Sunan\s+)?(?:Abi\s+Dawud|Abu\s+Dawud|AbuDawud)['’]?(?:s)?\b[^#\d]{0,80}#?(\d{1,5})\b",
+        r"\b(?:Sunan\s+)?(?:Abi\s+Dawud|Abu\s+Dawud|AbuDawud)['']?(?:s)?\b[^#\d]{0,80}#?(\d{1,5})\b",
         re.IGNORECASE), "ABUDAWUD"),
-    # Tirmidhi
     (re.compile(
-        r"\b(?:Jami`?\s+)?(?:at[-\s])?Tirmidhi['’]?(?:s)?\b[^#\d]{0,80}#?(\d{1,5})\b",
+        r"\b(?:Jami`?\s+)?(?:at[-\s])?Tirmidhi['']?(?:s)?\b[^#\d]{0,80}#?(\d{1,5})\b",
         re.IGNORECASE), "TIRMIDHI"),
-    # Nasa'i
     (re.compile(
-        r"\b(?:Sunan\s+)?(?:an[-\s])?Nasa['’]?i['’]?(?:s)?\b[^#\d]{0,80}#?(\d{1,5})\b",
+        r"\b(?:Sunan\s+)?(?:an[-\s])?Nasa['']?i['']?(?:s)?\b[^#\d]{0,80}#?(\d{1,5})\b",
         re.IGNORECASE), "NASAI"),
-    # Ibn Majah
     (re.compile(
-        r"\b(?:Sunan\s+)?Ibn\s+Majah['’]?(?:s)?\b[^#\d]{0,80}#?(\d{1,5})\b",
+        r"\b(?:Sunan\s+)?Ibn\s+Majah['']?(?:s)?\b[^#\d]{0,80}#?(\d{1,5})\b",
         re.IGNORECASE), "IBNMAJAH"),
 ]
 
@@ -85,8 +68,7 @@ def load_hadith_ids() -> set[str]:
 
 
 def extract_hadith_refs_from_text(text: str) -> list[tuple[str, int]]:
-    """Extract list of (slug, hadith_num) tuples found in text.
-    Returns deduped list."""
+    """Extract list of (slug, hadith_num) tuples found in text."""
     refs: list[tuple[str, int]] = []
     seen: set[tuple[str, int]] = set()
     for regex, slug in COLLECTION_PATTERNS:
@@ -98,7 +80,6 @@ def extract_hadith_refs_from_text(text: str) -> list[tuple[str, int]]:
                 num = int(num_str)
             except ValueError:
                 continue
-            # Sanity check: hadith numbers in canonical collections are < 8000
             if num < 1 or num > 8000:
                 continue
             key = (slug, num)
@@ -112,35 +93,35 @@ def build_source_id(slug: str, hadith_num: int) -> str:
     return f"SRC-HADITH-{slug}-{hadith_num}"
 
 
-def main() -> int:
-    print("=" * 60)
-    print("NUR V3 — Step 6: Compute Quran → Hadith cross-references")
-    print("=" * 60)
+def process_file(file_path: Path, valid_hadith_ids: set, label: str) -> tuple[int, int]:
+    """Process a JSONL file and add hadith_cross_refs to each chunk.
+    Returns (chunks_with_refs, total_refs)."""
+    if not file_path.exists():
+        print(f"\n  [{label}] {file_path.name} not found — skipping")
+        return 0, 0
 
-    if not QURAN_V3_PATH.exists():
-        print(f"[FATAL] {QURAN_V3_PATH} not found — run 05_build_chunks.py first")
-        return 1
-
-    print("\nLoading hadith IDs for validation...")
-    valid_hadith_ids = load_hadith_ids()
-    print(f"  {len(valid_hadith_ids):,} hadith IDs loaded")
-
-    print("\nProcessing Quran chunks...")
+    print(f"\n  [{label}] Processing {file_path.name}...")
     chunks_out = []
-    total_refs_found = 0
     chunks_with_refs = 0
+    total_refs = 0
 
-    with QURAN_V3_PATH.open("r", encoding="utf-8") as f:
+    with file_path.open("r", encoding="utf-8") as f:
         for line in f:
             try:
                 chunk = json.loads(line.strip())
             except json.JSONDecodeError:
                 continue
 
-            # Concatenate all 4 tafsir full texts for parsing
-            all_tafsir_text = " ".join(
-                t.get("text_full", "") for t in chunk.get("tafsirs", [])
-            )
+            # For Quran chunks: parse all tafsirs in metadata
+            # For Tafsir chunks: parse text_full
+            if chunk.get("kind") == "quran":
+                all_tafsir_text = " ".join(
+                    t.get("text_full", "") for t in chunk.get("tafsirs", [])
+                )
+            elif chunk.get("kind") == "tafsir":
+                all_tafsir_text = chunk.get("text_full", "") or chunk.get("text_chunk", "")
+            else:
+                continue
 
             refs = extract_hadith_refs_from_text(all_tafsir_text)
             valid_refs = []
@@ -148,9 +129,8 @@ def main() -> int:
                 source_id = build_source_id(slug, num)
                 if source_id in valid_hadith_ids:
                     valid_refs.append(source_id)
-                # else: skip — the cited hadith isn't in our DB
 
-            # Dedupe while preserving order
+            # Dedupe
             seen = set()
             deduped_refs = []
             for r in valid_refs:
@@ -166,34 +146,62 @@ def main() -> int:
 
             if deduped_refs:
                 chunks_with_refs += 1
-                total_refs_found += len(deduped_refs)
+                total_refs += len(deduped_refs)
 
             chunks_out.append(chunk)
 
-    # Write back to the same file
-    with OUTPUT_PATH.open("w", encoding="utf-8") as f:
+    # Write back
+    with file_path.open("w", encoding="utf-8") as f:
         for chunk in chunks_out:
             f.write(json.dumps(chunk, ensure_ascii=False) + "\n")
 
-    print(f"\n  [OK] Cross-refs computed")
-    print(f"  Chunks with ≥1 cross-ref: {chunks_with_refs:,} / {len(chunks_out):,}")
-    print(f"  Total cross-refs found:   {total_refs_found:,}")
-    avg = total_refs_found / max(chunks_with_refs, 1)
-    print(f"  Avg refs per linked chunk: {avg:.1f}")
+    print(f"    {label}: {chunks_with_refs:,} chunks with refs, {total_refs:,} total refs")
+    return chunks_with_refs, total_refs
 
-    # Save a small summary
+
+def main() -> int:
+    print("=" * 60)
+    print("NUR V3 — Step 6: Compute cross-references (Quran + Tafsir → Hadith)")
+    print("=" * 60)
+
+    print("\nLoading hadith IDs for validation...")
+    valid_hadith_ids = load_hadith_ids()
+    print(f"  {len(valid_hadith_ids):,} hadith IDs loaded")
+
+    # Process Quran chunks (parse tafsirs in metadata)
+    quran_refs, quran_total = process_file(
+        QURAN_V3_PATH, valid_hadith_ids, "Quran"
+    )
+
+    # Process Tafsir chunks (parse text_full in each chunk)
+    tafsir_refs, tafsir_total = process_file(
+        TAFSIR_V3_PATH, valid_hadith_ids, "Tafsir"
+    )
+
+    total_chunks_with_refs = quran_refs + tafsir_refs
+    total_refs = quran_total + tafsir_total
+
+    print(f"\n{'=' * 50}")
+    print(f"CROSS-REFERENCE SUMMARY")
+    print(f"{'=' * 50}")
+    print(f"  Quran chunks with refs:  {quran_refs:,}")
+    print(f"  Tafsir chunks with refs: {tafsir_refs:,}")
+    print(f"  Total chunks with refs:  {total_chunks_with_refs:,}")
+    print(f"  Total cross-refs found:  {total_refs:,}")
+
     summary_path = PROCESSED_DIR / "_cross_refs_summary.json"
     with summary_path.open("w", encoding="utf-8") as f:
         json.dump({
-            "chunks_total": len(chunks_out),
-            "chunks_with_refs": chunks_with_refs,
-            "total_refs": total_refs_found,
+            "quran_chunks_with_refs": quran_refs,
+            "tafsir_chunks_with_refs": tafsir_refs,
+            "total_chunks_with_refs": total_chunks_with_refs,
+            "total_refs": total_refs,
             "method": "tafsir_parsing",
             "validated_against": "hadith_v3.jsonl IDs",
         }, f, ensure_ascii=False, indent=2)
 
     print(f"  Summary: {summary_path.relative_to(PROJECT_ROOT)}")
-    print(f"\nNext step: python scripts/v3/07_embed_and_index.py (on Lightning AI L40S)")
+    print(f"\nNext step: zip and upload to Kaggle")
     return 0
 
 
